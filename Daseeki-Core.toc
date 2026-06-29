@@ -2,6 +2,7 @@
 ## Title: Daseeki Core
 ## Notes: Shared options hub and UI toolkit for the Daseeki addon suite
 ## Author: Daseeki
+## X-Curse-Project-ID: 1592402
 ## SavedVariables: DaseekiCoreDB
 ## Version: 1.0.0
 
