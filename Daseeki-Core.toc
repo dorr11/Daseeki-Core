@@ -1,4 +1,4 @@
-## Interface: 11507, 11508
+## Interface: 11507, 11508, 11509
 ## Title: Daseeki Core
 ## Notes: Shared options hub and UI toolkit for the Daseeki addon suite
 ## Author: Daseeki
