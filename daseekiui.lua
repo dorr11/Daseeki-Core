@@ -459,6 +459,10 @@ function UI.MakeLabel(parent, text, opts)
     lbl:SetText(text or "")
     local h = 18
     lbl:SetHeight(h)
+    frame:SetHeight(h)          -- BUG FIX: the container must carry the label's real
+                                -- height. Without it a label-only row item is a 0-height
+                                -- frame, culled (with its FontString) inside the clipping
+                                -- ScrollChild — the invisible header-label defect.
     frame.uiHeight = h
     frame._label = lbl
     return frame
@@ -473,6 +477,9 @@ function UI.MakeHint(parent, text)
     frame._label = lbl
     frame._fillWidth = true
     frame.uiHeight = 16
+    frame:SetHeight(16)         -- starter real height so a bare Hint row item is never a
+                                -- 0-height frame; the _multiHeight layout paths (flow:Hint
+                                -- / row _multiHeight) recompute it from the wrapped text.
     frame._multiHeight = true   -- height recomputed from wrapped text at layout
     return frame
 end
@@ -641,6 +648,10 @@ function UI.MakeEditorCard(parent, opts)
     card.flow = pane.flow
     card.pane = pane
     card.uiHeight = opts.height or 180
+    card:SetHeight(card.uiHeight)   -- FlatFrame sets no size; give the card its fixed
+                                    -- intrinsic height in own code so it is never a
+                                    -- 0-height frame. Width stays _fillWidth (stretched
+                                    -- by the row/block layout).
     card._fillWidth = true
     function card:Relayout() pane:Layout() end
     return card
@@ -794,6 +805,26 @@ local function newRow(pane, indent)
             end
         end
 
+        -- ROW-ITEM ENFORCEMENT NET (closes the item-level gap of the invisible-frame
+        -- class permanently). The flow engine sizes the row's HEIGHT but never stretches
+        -- an item's own frame height — only _multiHeight items self-size — so an item
+        -- whose factory left its container 0-height (a bare Label/Hint/EditorCard row
+        -- item) would be a 0-height frame culled with its contents inside the clipping
+        -- ScrollChild. After the row height is known, give any such item a resolvable
+        -- height: its authored uiHeight, else the row height. Mirrors the stackBlocks
+        -- guard — patch ONLY a zero/unset height, so an item that set its own real
+        -- height (or the _multiHeight path just sized) is never shrunk.
+        local function enforceItemHeights(rowH)
+            for _, it in ipairs(row._items) do
+                local w = it.w
+                if (w:GetHeight() or 0) < 1 then
+                    local hh = w.uiHeight
+                    if not hh or hh < 1 then hh = rowH end
+                    w:SetHeight(math.max(hh, 1))
+                end
+            end
+        end
+
         -- Centered row (opt-in via AddRow{ align = "center" }): a general primitive
         -- that lays every item left-to-right at its intrinsic width, then offsets the
         -- whole run so it is centered in the available width. Ignores `pin` (centering
@@ -827,6 +858,7 @@ local function newRow(pane, indent)
                 leftX = leftX + ww + ITEM_GAP
             end
             row:SetHeight(math.max(h, 1))
+            enforceItemHeights(math.max(h, 1))
             return math.max(h, 1)
         end
 
@@ -871,6 +903,7 @@ local function newRow(pane, indent)
             end
         end
         row:SetHeight(math.max(h, 1))
+        enforceItemHeights(math.max(h, 1))
         return math.max(h, 1)
     end
 
