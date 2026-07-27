@@ -56,9 +56,17 @@ local DEFAULT_TOKENS = {
     ok         = { 0.5098, 0.7490, 0.4196 }, -- #82BF6B  positive / on
     danger     = { 0.8118, 0.3647, 0.2902 }, -- #CF5D4A  destructive / off
 
+    -- control surfaces (contrast step-up): button/input/list/card fills & borders
+    -- read as controls at in-game gamma — brighter than raised/borderLite, same warmth.
+    control       = { 0.1961, 0.1686, 0.1255 }, -- #322B20  raised control fill (vs raised #262119)
+    controlBorder = { 0.4157, 0.3608, 0.2510 }, -- #6A5C40  control border (vs borderLite #4D4331)
+
     -- spacing (owner-approved constants; single source of truth)
     rowGap     = 10,
     sectionGap = 22,
+
+    -- max composed content width; panes lay blocks within min(paneInnerW, contentMaxW)
+    contentMaxW = 880,
 
     -- fonts
     headerFace = FACE_SERIF, headerSize = 15,
@@ -173,6 +181,10 @@ UI.RegisterTheme("Neutral Slate", {
     faint      = { 0.3608, 0.4000, 0.4588 }, -- #5C6675
     ok         = { 0.4353, 0.7490, 0.5569 }, -- #6FBF8E
     danger     = { 0.8157, 0.4157, 0.3529 }, -- #D06A5A
+
+    -- control surfaces (contrast step-up) — brighter than raised/borderLite, same slate.
+    control       = { 0.1843, 0.2078, 0.2471 }, -- #2F353F  (vs raised #262B33)
+    controlBorder = { 0.3882, 0.4353, 0.5059 }, -- #636F81  (vs borderLite #4A5361)
 })
 
 -- Activate a provisional theme immediately so any widgets created before login

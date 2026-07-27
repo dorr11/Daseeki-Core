@@ -50,6 +50,9 @@ local FLAT_BACKDROP = {
     edgeSize = 1,
     insets   = { left = 1, right = 1, top = 1, bottom = 1 },
 }
+-- Export immediately (Bug 2): consumers (e.g. Armory's icon button) reference
+-- UI.FLAT_BACKDROP; exporting at definition removes any load-order fragility.
+UI.FLAT_BACKDROP = FLAT_BACKDROP
 
 -- ── Re-skin registry ──────────────────────────────────────────────────────────
 -- Run fn now and again on every ThemeChanged. Widgets are long-lived (panes build
@@ -101,7 +104,7 @@ function UI.MakeCheckbox(parent, opts)
     local cb = CreateFrame("Button", nil, parent)
     cb:SetHeight(math.max(BOX, 20))
 
-    local box = UI.FlatFrame(cb, "inset", "borderLite")
+    local box = UI.FlatFrame(cb, "inset", "controlBorder")
     box:SetSize(BOX, BOX)
     box:SetPoint("LEFT", cb, "LEFT", 0, 0)
 
@@ -240,8 +243,8 @@ function UI.MakeDropdown(parent, opts)
     btn:SetSize(width, 24)
     UI.Skin(btn, function(self)
         self:SetBackdrop(FLAT_BACKDROP)
-        self:SetBackdropColor(UI.Color("raised"))
-        self:SetBackdropBorderColor(UI.Color("borderLite"))
+        self:SetBackdropColor(UI.Color("control"))
+        self:SetBackdropBorderColor(UI.Color("controlBorder"))
     end)
 
     local cur = fontString(btn, "body")
@@ -361,7 +364,7 @@ function UI.MakeEditBox(parent, opts)
     UI.Skin(box, function(self)
         self:SetBackdrop(FLAT_BACKDROP)
         self:SetBackdropColor(UI.Color("inset"))
-        self:SetBackdropBorderColor(UI.Color("borderLite"))
+        self:SetBackdropBorderColor(UI.Color("controlBorder"))
     end)
     local function commit(self)
         if opts.set then opts.set(self:GetText()) end
@@ -392,8 +395,8 @@ function UI.MakeButton(parent, opts)
     local btn = CreateFrame("Button", nil, parent, "BackdropTemplate")
     btn:SetHeight(h)
 
-    local fill = { normal = "raised", quiet = "panel", danger = "raised" }
-    local brd  = { normal = "accentDim", quiet = "border", danger = "danger" }
+    local fill = { normal = "control", quiet = "panel", danger = "control" }
+    local brd  = { normal = "accentDim", quiet = "controlBorder", danger = "danger" }
     local txt  = { normal = "text", quiet = "muted", danger = "danger" }
 
     local label = fontString(btn, txt[variant] and (variant == "danger" and "danger" or "body") or "body")
@@ -502,8 +505,8 @@ function UI.MakeSegmented(parent, opts)
                 self:SetBackdropBorderColor(UI.Color("accent"))
                 sl:SetFontObject(UI.fonts.accent)
             else
-                self:SetBackdropColor(UI.Color("raised"))
-                self:SetBackdropBorderColor(UI.Color("border"))
+                self:SetBackdropColor(UI.Color("control"))
+                self:SetBackdropBorderColor(UI.Color("controlBorder"))
                 sl:SetFontObject(UI.fonts.muted)
             end
         end
@@ -531,7 +534,7 @@ end
 function UI.MakeList(parent, opts)
     opts = opts or {}
     local height = opts.height or 160
-    local frame = UI.FlatFrame(parent, "inset", "border")
+    local frame = UI.FlatFrame(parent, "inset", "controlBorder")
     frame:SetHeight(height)
 
     local scroll = CreateFrame("ScrollFrame", nil, frame)
@@ -614,7 +617,7 @@ end
 -- opts = { title=, height= }.  Returns card; card.flow is a flow you add rows to.
 function UI.MakeEditorCard(parent, opts)
     opts = opts or {}
-    local card = UI.FlatFrame(parent, "raised", "borderLite")
+    local card = UI.FlatFrame(parent, "raised", "controlBorder")
     local pad = 10
     local titleH = 0
     if opts.title then
@@ -653,6 +656,74 @@ end
 --  FLOW LAYOUT ENGINE
 -- ════════════════════════════════════════════════════════════════════════════
 
+-- Debug overlay: 1px token-colored outline + block index around every laid block.
+-- Toggled by `/daseekiui debug`; off by default and never created until enabled.
+UI._debug = UI._debug or false
+UI._panes = UI._panes or {}            -- top-level flow panes, re-laid on toggle
+local DBG_TOKENS = { "accent", "ok", "danger", "borderLite", "muted" }
+local DBG_PAD = 1                       -- index-label inset from the outline corner
+
+local function debugOutline(blk, idx)
+    local f = blk.frame
+    local d = f._dbgBox
+    if not d then
+        d = CreateFrame("Frame", nil, f, "BackdropTemplate")
+        d:SetAllPoints(f)
+        d:SetFrameLevel(f:GetFrameLevel() + 20)
+        d:EnableMouse(false)
+        d.idx = d:CreateFontString(nil, "OVERLAY")
+        d.idx:SetFontObject(UI.fonts.small)
+        d.idx:SetPoint("TOPLEFT", d, "TOPLEFT", DBG_PAD, -DBG_PAD)
+        f._dbgBox = d
+    end
+    local tok = DBG_TOKENS[((idx - 1) % #DBG_TOKENS) + 1]
+    d:SetBackdrop(FLAT_BACKDROP)
+    d:SetBackdropColor(UI.Color("ground", 0))          -- transparent fill (token, alpha 0)
+    d:SetBackdropBorderColor(UI.Color(tok))
+    d.idx:SetText(tostring(idx))
+    d.idx:SetTextColor(UI.Color(tok))
+    d:Show()
+end
+
+local function hideDebug(blk)
+    local d = blk.frame._dbgBox
+    if d then d:Hide() end
+end
+
+-- Shared block stacker used by both the scroll pane and column primitive. Places
+-- each block at a running vertical cursor within `avail` width and returns the
+-- total content height (padTop..padBot inclusive). A per-block arrange error is
+-- routed to geterrorhandler() (never silently swallowed) so an invisible-layout
+-- regression like the historical zero-width-row bug can never hide again.
+local function stackBlocks(blocks, container, padX, padTop, padBot, avail)
+    local y = padTop
+    for i, blk in ipairs(blocks) do
+        if i > 1 then y = y + blk.topGap end
+        local ok, h = pcall(blk.arrange, avail)
+        if not ok then
+            geterrorhandler()(h)
+            h = 0
+        end
+        h = h or 0
+        blk.frame:ClearAllPoints()
+        blk.frame:SetPoint("TOPLEFT", container, "TOPLEFT", padX, -y)
+        if UI._debug then debugOutline(blk, i) else hideDebug(blk) end
+        y = y + h
+    end
+    return y + padBot
+end
+
+-- Toggle the layout debug overlay and re-lay every registered pane so outlines
+-- (or their removal) take effect immediately.
+function UI.SetDebug(on)
+    UI._debug = on and true or false
+    for pane in pairs(UI._panes) do
+        if pane.Layout then pane:Layout() end
+    end
+    return UI._debug
+end
+function UI.ToggleDebug() return UI.SetDebug(not UI._debug) end
+
 -- A Row: horizontal container. Widgets append left-to-right; one may be right-pinned.
 local function newRow(pane, indent)
     local row = CreateFrame("Frame", nil, pane.child)
@@ -679,6 +750,11 @@ local function newRow(pane, indent)
     function row:Label(text, o) local w = UI.MakeLabel(row, text, o); row._items[#row._items + 1] = { w = w, pin = o and o.pin }; return w end
 
     row.arrange = function(width)
+        -- BUG-1 ROOT FIX: give the row a real width. Without this the row frame
+        -- stays at width 0, so its child widgets have no resolvable rect inside the
+        -- clipping ScrollChild and never render or receive mouse input — while every
+        -- other block (header/separator/hint/custom blocks) sets its width and shows.
+        row:SetWidth(math.max(width, 1))
         local avail = width - row._indent
         local leftX, h = row._indent, 0
         -- right-pinned first (measure), place after lefts
@@ -767,6 +843,7 @@ local function newFlow(pane, indent)
         local COLLAPSE_W = 460
         local ROW_H = 24
         grid.arrange = function(width)
+            grid:SetWidth(math.max(width, 1))   -- same width-0 fix as newRow (Bug 1 class)
             local cols = (width >= COLLAPSE_W) and 2 or 1
             local colW = (width - self._indent) / cols
             local rows = math.ceil(#grid._boxes / cols)
@@ -872,18 +949,14 @@ function UI.CreatePane(parent, opts)
     function pane:Layout()
         local sw = self.scroll:GetWidth()
         if not sw or sw < 1 then return end
-        self.child:SetWidth(sw)
-        local avail = sw - self._padX * 2
+        self.child:SetWidth(sw)     -- child spans the viewport; clip/scroll unchanged
+        -- Compose blocks within min(paneInnerWidth, contentMaxW), left-aligned.
+        local inner = sw - self._padX * 2
+        local maxW  = UI.Token("contentMaxW") or 880
+        local avail = math.min(inner, maxW)
         if avail < 1 then avail = 1 end
-        local y = self._padTop
-        for i, blk in ipairs(self.blocks) do
-            if i > 1 then y = y + blk.topGap end
-            local h = blk.arrange(avail) or 0
-            blk.frame:ClearAllPoints()
-            blk.frame:SetPoint("TOPLEFT", self.child, "TOPLEFT", self._padX, -y)
-            y = y + h
-        end
-        y = y + self._padBot
+        self._contentW = avail      -- consumers (e.g. two-pane blocks) read this
+        local y = stackBlocks(self.blocks, self.child, self._padX, self._padTop, self._padBot, avail)
         self.child:SetHeight(math.max(y, 1))
         -- scrollbar range
         if self.bar then
@@ -901,7 +974,44 @@ function UI.CreatePane(parent, opts)
         end
     end
 
+    UI._panes[pane] = true      -- registered so /daseekiui debug can re-lay it
     return pane
+end
+
+-- ── Column (non-scrolling flow region) ────────────────────────────────────────
+-- A plain content column that stacks flow blocks and sizes ITSELF to its content
+-- (no scroll/clip of its own — the host pane scrolls). Used to compose side-by-side
+-- columns (e.g. Armory's two-pane Sets layout). Drive it with col:Layout(width).
+--   col.frame  — the container frame (parent it / anchor it yourself)
+--   col.flow   — a flow; add rows/sections/widgets exactly as on a pane
+--   col:Layout(width) -> total content height (also sets frame size)
+function UI.CreateColumn(parent, opts)
+    opts = opts or {}
+    local col = {
+        blocks  = {},
+        _padX   = opts.padX or 0,
+        _padTop = opts.padTop or 0,
+        _padBot = opts.padBottom or 0,
+    }
+    local frame = CreateFrame("Frame", nil, parent)
+    col.frame, col.child = frame, frame     -- blocks parent to `frame` via the flow
+
+    function col:AddBlock(f, arrange, topGap, indent)
+        self.blocks[#self.blocks + 1] = { frame = f, arrange = arrange, topGap = topGap or rowGap(), indent = indent or 0 }
+    end
+
+    function col:Layout(width)
+        width = math.max(width or frame:GetWidth() or 1, 1)
+        frame:SetWidth(width)
+        local avail = width - self._padX * 2
+        if avail < 1 then avail = 1 end
+        local total = stackBlocks(self.blocks, frame, self._padX, self._padTop, self._padBot, avail)
+        frame:SetHeight(math.max(total, 1))
+        return total
+    end
+
+    col.flow = newFlow(col, 0)
+    return col
 end
 
 -- ── Legacy pane: scroll + clip wrapper for un-migrated build(panel) callers ────
@@ -1001,6 +1111,5 @@ function UI.Confirm(opts)
     return dlg
 end
 
--- Mirror the flat backdrop for the hub + wave-2/3 addons that want the same look.
-UI.FLAT_BACKDROP = FLAT_BACKDROP
+-- UI.FLAT_BACKDROP is exported at its definition (top of file, Bug 2).
 UI.PANE_PAD = PANE_PAD
