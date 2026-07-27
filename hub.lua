@@ -77,6 +77,11 @@ local function MakeNavButton(parent)
     b.icon:Hide()
 
     b.label = b:CreateFontString(nil, "OVERLAY")
+    -- Assign a safe default FontObject at creation. Style() re-assigns the correct
+    -- per-kind object later, but any SetText that reaches this label before Style()
+    -- (or if Style() is ever skipped) must not hit a fontless FontString, which is a
+    -- hard "Font not set" Lua error in this client.
+    b.label:SetFontObject(UI.fonts.body)
     b.label:SetJustifyH("LEFT")
     b.label:SetWordWrap(false)
 
@@ -135,8 +140,10 @@ function Core:RebuildNav()
         b.icon:Hide()
         b.label:ClearAllPoints()
         b.label:SetPoint("LEFT", b, "LEFT", 10, 0)
-        b.label:SetText(text:upper())
+        -- Style() assigns the FontObject; it MUST run before SetText so the label is
+        -- never fontless when SetText is called (see MakeNavButton).
         b:Style("group", false)
+        b.label:SetText(text:upper())
         b:SetScript("OnClick", nil)
         b:EnableMouse(false)
         y = y + 18 + 2
@@ -159,11 +166,13 @@ function Core:RebuildNav()
         b.label:ClearAllPoints()
         b.label:SetPoint("LEFT", b, "LEFT", indent, 0)
         b.label:SetPoint("RIGHT", b, "RIGHT", -6, 0)
-        b.label:SetText(def.title or def.id or "")
         local selected = (kind == "section")
             and (self._currentAddon == addonId and self._currentSection == sectionId)
             or  (kind == "addon" and self._currentAddon == addonId)
+        -- Style() assigns the FontObject; it MUST run before SetText so the label is
+        -- never fontless when SetText is called (see MakeNavButton).
         b:Style(kind, selected)
+        b.label:SetText(def.title or def.id or "")
         b:SetScript("OnClick", function() Core:ShowAddon(addonId, sectionId) end)
         y = y + 24
     end
@@ -417,6 +426,7 @@ function Core:EnsureHub()
     if not self.sections["__appearance"] then
         self:RegisterCorePage({
             id = "__appearance", title = "Appearance",
+            flow = true,  -- Core's own page uses the DaseekiUI flow API.
             sections = { { id = "_main", title = "Appearance", build = BuildAppearance, legacy = false } },
         })
     end

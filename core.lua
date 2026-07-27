@@ -91,12 +91,17 @@ function Core:RegisterAddon(def)
             legacy  = true,
         } }
     else
-        -- New flow API: each caller-supplied section's build(flow) receives the
-        -- DaseekiUI flow object. A section may opt back to the legacy raw-frame
-        -- path with `legacy = true`.
+        -- BACK-COMPAT IS THE DEFAULT. A def carrying `sections` is NOT assumed to be
+        -- a new flow-API caller: the old RegisterAddon API already used `sections`
+        -- (the old hub's sub-tab row). Flow rendering is opt-in ONLY via `flow = true`
+        -- on the addon def. Without it, every section renders through the legacy
+        -- raw-frame path (build(panel) receives a real Frame), exactly as before.
+        -- A per-section `legacy` value always wins (a flow addon may force one section
+        -- legacy, or a legacy addon may opt one section into flow).
+        local defaultLegacy = not def.flow
         for i, s in ipairs(def.sections) do
             s.id = s.id or ("s" .. i)
-            if s.legacy == nil then s.legacy = false end
+            if s.legacy == nil then s.legacy = defaultLegacy end
         end
     end
     if not self.sections[def.id] then
@@ -116,6 +121,14 @@ function Core:RegisterCorePage(def)
     def.isCore = true
     if not def.sections or #def.sections == 0 then
         def.sections = { { id = "_main", title = def.title, build = def.build, refresh = def.refresh, legacy = def.legacy or false } }
+    else
+        -- Core pages follow the same opt-in rule as RegisterAddon: flow only when
+        -- `flow = true`; otherwise legacy raw-frame. A per-section `legacy` wins.
+        local defaultLegacy = not def.flow
+        for i, s in ipairs(def.sections) do
+            s.id = s.id or ("s" .. i)
+            if s.legacy == nil then s.legacy = defaultLegacy end
+        end
     end
     if not self.sections[def.id] then
         self.coreOrder[#self.coreOrder + 1] = def.id
