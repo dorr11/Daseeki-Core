@@ -4,11 +4,14 @@
 ## Author: Daseeki
 ## X-Curse-Project-ID: 1592402
 ## SavedVariables: DaseekiCoreDB
+## SavedVariablesPerCharacter: DaseekiCoreCharDB
 ## Version: 1.0.0
 
 core.lua
+theme.lua
 skin.lua
 widgets.lua
+daseekiui.lua
 dialogs.lua
 hub.lua
 minimap.lua

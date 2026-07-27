@@ -27,17 +27,28 @@ DaseekiSuite = Core
 _G.DaseekiSuite = Core
 
 Core.available = true
-Core.sections  = {}   -- id -> section definition table
+Core.sections  = {}   -- id -> section/addon definition table
+Core.regOrder  = {}   -- suite addon ids in REGISTRATION ORDER (sidebar order)
+Core.coreOrder = {}   -- Core-owned page ids (Appearance, future) — separate group
 
+-- Account-wide state (shared across characters). Window GEOMETRY lives in the
+-- per-character DB below so window size/position can differ per character.
 local DB_DEFAULTS = {
-    point        = "CENTER",
-    relPoint     = "CENTER",
-    x            = 0,
-    y            = 0,
     lastSection  = nil,   -- legacy (last addon id); kept for back-compat
     lastAddon    = nil,   -- last selected top-level addon id
     minimapAngle = 220,
     minimapHide  = false,
+    theme        = "Ashenvale Gold",  -- active DaseekiUI theme name
+}
+
+-- Per-character window geometry (owner decision: size persisted per character).
+local CHAR_DB_DEFAULTS = {
+    point    = "CENTER",
+    relPoint = "CENTER",
+    x        = 0,
+    y        = 0,
+    width    = nil,   -- nil -> default window size on first open
+    height   = nil,
 }
 
 -- ── SavedVariables ────────────────────────────────────────────────────────────
@@ -49,7 +60,12 @@ loader:SetScript("OnEvent", function(_, _, name)
     for k, v in pairs(DB_DEFAULTS) do
         if DaseekiCoreDB[k] == nil then DaseekiCoreDB[k] = v end
     end
-    Core.db = DaseekiCoreDB
+    DaseekiCoreCharDB = DaseekiCoreCharDB or {}
+    for k, v in pairs(CHAR_DB_DEFAULTS) do
+        if DaseekiCoreCharDB[k] == nil then DaseekiCoreCharDB[k] = v end
+    end
+    Core.db     = DaseekiCoreDB
+    Core.charDb = DaseekiCoreCharDB
     loader:UnregisterEvent("ADDON_LOADED")
 end)
 
@@ -64,16 +80,47 @@ function Core:RegisterAddon(def)
     def.order = def.order or 100
     def.title = def.title or def.id
     if not def.sections or #def.sections == 0 then
+        -- Legacy imperative path: a single implicit section built from the
+        -- addon-level build/options/refresh. build(panel) receives a raw frame.
         def.sections = { {
             id      = "_main",
             title   = def.title,
             build   = def.build,
             options = def.options,
             refresh = def.refresh,
+            legacy  = true,
         } }
+    else
+        -- New flow API: each caller-supplied section's build(flow) receives the
+        -- DaseekiUI flow object. A section may opt back to the legacy raw-frame
+        -- path with `legacy = true`.
+        for i, s in ipairs(def.sections) do
+            s.id = s.id or ("s" .. i)
+            if s.legacy == nil then s.legacy = false end
+        end
+    end
+    if not self.sections[def.id] then
+        self.regOrder[#self.regOrder + 1] = def.id
     end
     self.sections[def.id] = def
-    -- If the hub window already exists, rebuild the tab rows so the new addon appears.
+    -- If the hub window already exists, rebuild the sidebar so the new addon appears.
+    if self.RebuildNav then self:RebuildNav() end
+    return def
+end
+
+-- Register a Core-owned page (Appearance, future) shown in the sidebar's "Core"
+-- group rather than the registration-ordered Suite group. Same section machinery.
+function Core:RegisterCorePage(def)
+    assert(type(def) == "table" and def.id, "RegisterCorePage requires an id")
+    def.title = def.title or def.id
+    def.isCore = true
+    if not def.sections or #def.sections == 0 then
+        def.sections = { { id = "_main", title = def.title, build = def.build, refresh = def.refresh, legacy = def.legacy or false } }
+    end
+    if not self.sections[def.id] then
+        self.coreOrder[#self.coreOrder + 1] = def.id
+    end
+    self.sections[def.id] = def
     if self.RebuildNav then self:RebuildNav() end
     return def
 end
