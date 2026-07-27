@@ -756,6 +756,44 @@ local function newRow(pane, indent)
         -- other block (header/separator/hint/custom blocks) sets its width and shows.
         row:SetWidth(math.max(width, 1))
         local avail = width - row._indent
+
+        -- Centered row (opt-in via AddRow{ align = "center" }): a general primitive
+        -- that lays every item left-to-right at its intrinsic width, then offsets the
+        -- whole run so it is centered in the available width. Ignores `pin` (centering
+        -- and edge-pinning are mutually exclusive) and does not stretch _fillWidth items
+        -- (they use their authored uiWidth). Used by Armory's builder column.
+        if row._align == "center" then
+            local n = #row._items
+            local widths, h, total = {}, 0, 0
+            for i, it in ipairs(row._items) do
+                local w = it.w
+                -- intrinsic width: authored uiWidth, else a real measured width, else a
+                -- label's string width (Label/Hint frames carry no uiWidth and report a
+                -- GetWidth of 0 until sized), else a floor so centering never collapses.
+                local ww = w.uiWidth
+                if not ww or ww <= 0 then
+                    local gw = w:GetWidth() or 0
+                    if gw > 0 then ww = gw
+                    elseif w._label and w._label.GetStringWidth then ww = w._label:GetStringWidth()
+                    else ww = 80 end
+                end
+                widths[i] = ww
+                total = total + ww
+                h = math.max(h, w.uiHeight or w:GetHeight())
+            end
+            if n > 1 then total = total + (n - 1) * ITEM_GAP end
+            local leftX = row._indent + math.max(0, (avail - total) / 2)
+            for i, it in ipairs(row._items) do
+                local ww = widths[i]
+                it.w:SetWidth(ww)
+                it.w:ClearAllPoints()
+                it.w:SetPoint("TOPLEFT", row, "TOPLEFT", leftX, 0)
+                leftX = leftX + ww + ITEM_GAP
+            end
+            row:SetHeight(math.max(h, 1))
+            return math.max(h, 1)
+        end
+
         local leftX, h = row._indent, 0
         -- right-pinned first (measure), place after lefts
         local rights = {}
@@ -809,8 +847,9 @@ end
 local function newFlow(pane, indent)
     local flow = { pane = pane, _indent = indent or 0 }
 
-    function flow:AddRow()
+    function flow:AddRow(opts)
         local row = newRow(self.pane, self._indent)
+        if opts and opts.align then row._align = opts.align end
         self.pane:AddBlock(row, row.arrange, rowGap())
         return row
     end

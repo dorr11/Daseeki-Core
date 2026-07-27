@@ -11,7 +11,7 @@
       * Legacy build(panel) sections: wrapped in a scroll+clip pane so their existing
         absolute-offset layout is contained (overflow scrolls instead of escaping).
 
-    Window is resizable (min 760x560); geometry persists per character. Title bar
+    Window is resizable (min 1140x560); geometry persists per character. Title bar
     drag-moves; a corner grip drag-resizes. Everything reads theme tokens and
     re-skins live on ThemeChanged.
 --]]
@@ -19,8 +19,14 @@
 local ADDON, Core = ...
 local UI = DaseekiUI
 
-local DEFAULT_W, DEFAULT_H = 1024, 680
-local MIN_W, MIN_H = 760, 560
+local DEFAULT_W, DEFAULT_H = 1200, 680
+-- MIN_W is set so the Armory Sets two-pane layout always fits (side-by-side is the
+-- only reachable mode). Window→pane-content overhead is 264px: PAD(12)+SIDEBAR_W(190)
+-- +PAD(12) left, PAD(12)+BAR_W(10) right, +2*PANE_PAD(28) inner. Two-pane needs
+-- SPLIT_LEFT(300)+SPLIT_GAP(16)+PD_W(512)=828 of content width (== Armory SPLIT_MIN).
+-- avail(W)=min(W-264, contentMaxW=880); avail(1140)=876 ≥ 828 (48px margin), and for
+-- every W ≥ MIN_W avail ≥ 876 > 828, so the stacked branch is unreachable.
+local MIN_W, MIN_H = 1140, 560
 local TITLE_H   = 34
 local SIDEBAR_W = 190
 local PAD       = 12
