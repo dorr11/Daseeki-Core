@@ -144,6 +144,12 @@ function UI.MakeCheckbox(parent, opts)
     lbl:SetWidth(0)
     cb.uiHeight = math.max(BOX, 20)
     cb.uiWidth  = BOX + 6 + (lbl:GetStringWidth() or 60) + 4
+    -- Self-size the button's width. A checkbox placed by raw SetPoint (the
+    -- AddChecklist grid does exactly this) otherwise stays width-0, and a zero-width
+    -- frame inside the clipping ScrollChild has its box + label culled — the very
+    -- invisible-widget class the row path already dodged by setting the width itself.
+    -- Setting it here makes every checkbox render regardless of who places it.
+    cb:SetWidth(cb.uiWidth)
     cb._label = lbl
     return cb
 end
@@ -705,8 +711,25 @@ local function stackBlocks(blocks, container, padX, padTop, padBot, avail)
             h = 0
         end
         h = h or 0
-        blk.frame:ClearAllPoints()
-        blk.frame:SetPoint("TOPLEFT", container, "TOPLEFT", padX, -y)
+        local f = blk.frame
+        f:ClearAllPoints()
+        f:SetPoint("TOPLEFT", container, "TOPLEFT", padX, -y)
+        -- SAFETY NET (make the invisible-block class impossible): a block whose arrange
+        -- forgets a dimension leaves its frame zero-sized, and a zero-sized frame inside
+        -- the clipping ScrollChild culls it and every child (the historical bug twice
+        -- fixed by hand). Enforce a resolvable rect for any LAID block (h > 0), patching
+        -- ONLY an unset/zero dimension:
+        --   * width  -> the block's content width (avail minus its indent)
+        --   * height -> the height the arrange just reported (h)
+        -- Guards preserve intentional geometry: a frame that set its own (non-zero)
+        -- width/height reports GetWidth/GetHeight >= 1, so the patch is skipped and a
+        -- deliberately smaller size is never clobbered. Collapsed blocks return h == 0
+        -- (and Hide() themselves), so they are skipped entirely — never force-shown.
+        if h > 0 then
+            if (f:GetHeight() or 0) < 1 then f:SetHeight(h) end
+            local wantW = avail - (blk.indent or 0)
+            if wantW > 0 and (f:GetWidth() or 0) < 1 then f:SetWidth(wantW) end
+        end
         if UI._debug then debugOutline(blk, i) else hideDebug(blk) end
         y = y + h
     end
@@ -757,6 +780,20 @@ local function newRow(pane, indent)
         row:SetWidth(math.max(width, 1))
         local avail = width - row._indent
 
+        -- Place an item at horizontal offset x. vAlign == "center" anchors by the item's
+        -- LEFT (its mid-height) to the row's LEFT, so items of differing heights (e.g. a
+        -- 46px icon button beside a 24px EditBox) are vertically centered against each
+        -- other; the default tops-aligns via TOPLEFT. The row height is the tallest item
+        -- either way, so centering has real vertical room to work in.
+        local function place(w, x)
+            w:ClearAllPoints()
+            if row._vAlign == "center" then
+                w:SetPoint("LEFT", row, "LEFT", x, 0)
+            else
+                w:SetPoint("TOPLEFT", row, "TOPLEFT", x, 0)
+            end
+        end
+
         -- Centered row (opt-in via AddRow{ align = "center" }): a general primitive
         -- that lays every item left-to-right at its intrinsic width, then offsets the
         -- whole run so it is centered in the available width. Ignores `pin` (centering
@@ -786,8 +823,7 @@ local function newRow(pane, indent)
             for i, it in ipairs(row._items) do
                 local ww = widths[i]
                 it.w:SetWidth(ww)
-                it.w:ClearAllPoints()
-                it.w:SetPoint("TOPLEFT", row, "TOPLEFT", leftX, 0)
+                place(it.w, leftX)
                 leftX = leftX + ww + ITEM_GAP
             end
             row:SetHeight(math.max(h, 1))
@@ -809,9 +845,8 @@ local function newRow(pane, indent)
             local it = rights[i]
             local ww = it._w or 100
             it.w:SetWidth(ww)
-            it.w:ClearAllPoints()
             rightX = rightX - ww
-            it.w:SetPoint("TOPLEFT", row, "TOPLEFT", rightX, 0)
+            place(it.w, rightX)
             rightX = rightX - ITEM_GAP
         end
         -- lefts fill the remaining space; a single _fillWidth left item stretches
@@ -820,8 +855,7 @@ local function newRow(pane, indent)
         for _, it in ipairs(row._items) do
             if it.pin ~= "right" then
                 local w = it.w
-                it.w:ClearAllPoints()
-                it.w:SetPoint("TOPLEFT", row, "TOPLEFT", leftX, 0)
+                place(it.w, leftX)
                 local ww = it._w
                 if w._fillWidth then
                     ww = math.max(40, (#rights > 0 and (rightX) or width) - leftX)
@@ -849,7 +883,10 @@ local function newFlow(pane, indent)
 
     function flow:AddRow(opts)
         local row = newRow(self.pane, self._indent)
-        if opts and opts.align then row._align = opts.align end
+        if opts then
+            if opts.align  then row._align  = opts.align  end
+            if opts.vAlign then row._vAlign = opts.vAlign end
+        end
         self.pane:AddBlock(row, row.arrange, rowGap())
         return row
     end
@@ -891,6 +928,11 @@ local function newFlow(pane, indent)
                 local rowN = math.floor((i - 1) / cols)
                 box:ClearAllPoints()
                 box:SetPoint("TOPLEFT", grid, "TOPLEFT", self._indent + col * colW, -(rowN * ROW_H))
+                -- Give each checkbox a real, column-bounded width (specific-arrange fix
+                -- for the invisible-checklist class): the click target stays on the
+                -- box+label but never spills past its column. MakeCheckbox also self-sizes,
+                -- so this is belt-and-suspenders, not the sole guarantee.
+                box:SetWidth(math.max(1, math.min(box.uiWidth or colW, colW - ITEM_GAP)))
             end
             local h = math.max(1, rows * ROW_H)
             grid:SetHeight(h)
