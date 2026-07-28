@@ -548,6 +548,13 @@ function UI.MakeSegmented(parent, opts)
     refresh()
     frame.uiHeight = h
     frame.uiWidth  = math.max(1, x - 4)
+    -- Self-size the frame's width too (not just the height set at creation). Like
+    -- MakeButton/MakeCheckbox, every factory owns BOTH dims: a segmented placed by raw
+    -- SetPoint inside a hand-built composite (BT's HUD column does exactly this) would
+    -- otherwise stay width-0 and be culled inside the clipping ScrollChild — the same
+    -- invisible-widget class the checkbox fix already closed. The row engine's later
+    -- SetWidth(uiWidth) is idempotent, so row call sites are unaffected.
+    frame:SetWidth(frame.uiWidth)
     return frame
 end
 
