@@ -4,3 +4,5 @@ ignore:
   - README.md
   - CHANGELOG.md
   - .github
+
+manual-changelog: CHANGELOG.md
