@@ -187,6 +187,96 @@ UI.RegisterTheme("Neutral Slate", {
     controlBorder = { 0.3882, 0.4353, 0.5059 }, -- #636F81  (vs borderLite #4A5361)
 })
 
+-- ── Four WoW-flavored themes (round-5) ────────────────────────────────────────
+
+-- "Orgrimmar Ember" — Horde forge-dark: umber-brown grounds, ember-orange accent,
+-- parchment-warm text; danger is a cooler crimson so it never reads as the accent.
+UI.RegisterTheme("Orgrimmar Ember", {
+    ground     = { 0.0902, 0.0627, 0.0392 }, -- #17100A  dark umber ground
+    panel      = { 0.1412, 0.0941, 0.0745 }, -- #241813
+    raised     = { 0.1804, 0.1255, 0.1020 }, -- #2E201A
+    inset      = { 0.0706, 0.0471, 0.0314 }, -- #120C08
+    border     = { 0.2392, 0.1647, 0.1216 }, -- #3D2A1F
+    borderLite = { 0.3216, 0.2235, 0.1647 }, -- #52392A
+    accent     = { 0.9098, 0.4784, 0.1333 }, -- #E87A22  ember orange (hue ~27)
+    accentDim  = { 0.6588, 0.3529, 0.0941 }, -- #A85A18
+    text       = { 0.9294, 0.8863, 0.8000 }, -- #EDE2CC  parchment-warm
+    muted      = { 0.6980, 0.6078, 0.4863 }, -- #B29B7C
+    faint      = { 0.4863, 0.4078, 0.3216 }, -- #7C6852
+    ok         = { 0.4353, 0.7098, 0.3373 }, -- #6FB556  positive green (hue ~104)
+    danger     = { 0.7686, 0.1922, 0.2745 }, -- #C43146  cooler crimson (hue ~351)
+
+    -- control surfaces (contrast step-up) — brighter than raised/borderLite, same umber.
+    control       = { 0.2000, 0.1333, 0.1020 }, -- #33221A  (vs raised #2E201A)
+    controlBorder = { 0.4196, 0.2902, 0.2039 }, -- #6B4A34  (vs borderLite #52392A)
+})
+
+-- "Stormwind Regalia" — Alliance royal: midnight-navy grounds, royal-blue accent with a
+-- gold-leaning dim accent (the blue+gold heraldry read), cool-white text.
+UI.RegisterTheme("Stormwind Regalia", {
+    ground     = { 0.0471, 0.0706, 0.1255 }, -- #0C1220  midnight navy
+    panel      = { 0.0745, 0.1098, 0.1882 }, -- #131C30
+    raised     = { 0.1059, 0.1490, 0.2471 }, -- #1B263F
+    inset      = { 0.0353, 0.0549, 0.0980 }, -- #090E19
+    border     = { 0.1490, 0.2000, 0.2863 }, -- #263349
+    borderLite = { 0.2157, 0.2784, 0.3725 }, -- #37475F
+    accent     = { 0.3059, 0.4824, 0.8392 }, -- #4E7BD6  royal blue (hue ~220)
+    accentDim  = { 0.7882, 0.6353, 0.3020 }, -- #C9A24D  gold-leaning dim accent
+    text       = { 0.9176, 0.9333, 0.9647 }, -- #EAEEF6  cool white
+    muted      = { 0.6039, 0.6510, 0.7373 }, -- #9AA6BC
+    faint      = { 0.4118, 0.4627, 0.5725 }, -- #697692
+    ok         = { 0.3725, 0.7216, 0.4980 }, -- #5FB87F  positive green
+    danger     = { 0.8157, 0.3412, 0.2980 }, -- #D0574C
+
+    -- control surfaces (contrast step-up) — brighter than raised/borderLite, same navy.
+    control       = { 0.1176, 0.1608, 0.2471 }, -- #1E293F  (vs raised #1B263F)
+    controlBorder = { 0.2627, 0.3451, 0.4784 }, -- #43587A  (vs borderLite #37475F)
+})
+
+-- "Felwood" — fel corruption: near-black green-tinted grounds, toxic fel-green accent;
+-- ok is shifted to teal so on-state stays distinct from the accent, danger red pops.
+UI.RegisterTheme("Felwood", {
+    ground     = { 0.0431, 0.0706, 0.0471 }, -- #0B120C  near-black, green-tinted
+    panel      = { 0.0706, 0.1098, 0.0745 }, -- #121C13
+    raised     = { 0.0980, 0.1529, 0.1020 }, -- #19271A
+    inset      = { 0.0314, 0.0588, 0.0353 }, -- #080F09
+    border     = { 0.1451, 0.2157, 0.1490 }, -- #253726
+    borderLite = { 0.2157, 0.3137, 0.2275 }, -- #37503A
+    accent     = { 0.5255, 0.8314, 0.1686 }, -- #86D42B  fel green (hue ~88)
+    accentDim  = { 0.3529, 0.5804, 0.1255 }, -- #5A9420
+    text       = { 0.8941, 0.9373, 0.8667 }, -- #E4EFDD  pale green-white
+    muted      = { 0.6275, 0.7020, 0.6039 }, -- #A0B39A
+    faint      = { 0.4118, 0.4627, 0.3961 }, -- #697665
+    ok         = { 0.2471, 0.7216, 0.6039 }, -- #3FB89A  teal on-state (hue ~165, off the accent)
+    danger     = { 0.8392, 0.2588, 0.1961 }, -- #D64232  red pops (hue ~6)
+
+    -- control surfaces (contrast step-up) — brighter than raised/borderLite, same fel tint.
+    control       = { 0.1216, 0.1804, 0.1137 }, -- #1F2E1D  (vs raised #19271A)
+    controlBorder = { 0.2784, 0.3765, 0.2353 }, -- #47603C  (vs borderLite #37503A)
+})
+
+-- "Winterspring Frost" — icy tundra: dark blue-slate grounds (darker and bluer than
+-- Neutral Slate), pale ice-blue accent, frosty cool-white text.
+UI.RegisterTheme("Winterspring Frost", {
+    ground     = { 0.0431, 0.0627, 0.0980 }, -- #0B1019  dark blue-slate (darker+bluer than Slate)
+    panel      = { 0.0706, 0.1020, 0.1569 }, -- #121A28
+    raised     = { 0.1020, 0.1412, 0.2118 }, -- #1A2436
+    inset      = { 0.0314, 0.0471, 0.0745 }, -- #080C13
+    border     = { 0.1412, 0.2000, 0.2824 }, -- #243348
+    borderLite = { 0.2078, 0.2824, 0.4157 }, -- #35486A
+    accent     = { 0.6902, 0.8471, 0.9412 }, -- #B0D8F0  pale ice-blue (hue ~203)
+    accentDim  = { 0.4353, 0.6510, 0.8000 }, -- #6FA6CC
+    text       = { 0.9098, 0.9451, 0.9725 }, -- #E8F1F8  frosty cool-white
+    muted      = { 0.6275, 0.7020, 0.7804 }, -- #A0B3C7
+    faint      = { 0.4078, 0.4745, 0.5529 }, -- #68798D
+    ok         = { 0.3608, 0.7216, 0.5412 }, -- #5CB88A  positive green
+    danger     = { 0.8431, 0.3569, 0.2902 }, -- #D75B4A  red pops on ice
+
+    -- control surfaces (contrast step-up) — brighter than raised/borderLite, same frost slate.
+    control       = { 0.1098, 0.1569, 0.2196 }, -- #1C2838  (vs raised #1A2436)
+    controlBorder = { 0.2549, 0.3490, 0.4863 }, -- #41597C  (vs borderLite #35486A)
+})
+
 -- Activate a provisional theme immediately so any widgets created before login
 -- render correctly; the saved choice is re-applied once SavedVariables load.
 UI.SetTheme("Ashenvale Gold")
