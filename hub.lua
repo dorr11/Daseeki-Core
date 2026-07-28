@@ -62,6 +62,25 @@ local function SetLastSection(addonId, sectionId)
 end
 
 -- ── Sidebar entry button ──────────────────────────────────────────────────────
+-- Group headings ("SUITE"/"CORE") need the "faint" token, which no shared
+-- UI.fonts.* object provides. Rather than override a pooled label's color with an
+-- instance SetTextColor (which would survive SetFontObject and leak "faint" onto
+-- whatever addon/section entry later recycles that pooled button), we give the
+-- group heading its OWN shared FontObject tinted from tokens. Every nav label then
+-- carries ONLY a FontObject and never an instance color override, so nav re-colors
+-- live on ThemeChanged the same way the rest of the suite does (SetTheme re-tints
+-- shared FontObjects; it does NOT re-run RebuildNav), and pooled reuse can no longer
+-- carry a stale color across kinds.
+local navFaintFont = _G["DaseekiHubNavFaint"] or CreateFont("DaseekiHubNavFaint")
+local function ApplyNavFaintFont()
+    -- Mirror UI.fonts.small (bodyFace at smallSize), but tinted "faint".
+    navFaintFont:SetFont(UI.Token("bodyFace"), UI.Token("smallSize"), "")
+    navFaintFont:SetTextColor(UI.Color("faint"))
+    navFaintFont:SetJustifyH("LEFT")
+end
+ApplyNavFaintFont()
+UI.OnThemeChanged(ApplyNavFaintFont)
+
 -- kind: "group" (non-clickable heading) | "addon" | "section"
 local function MakeNavButton(parent)
     local b = CreateFrame("Button", nil, parent)
@@ -102,8 +121,11 @@ local function MakeNavButton(parent)
         self._kind = kind
         self._selected = selected
         if kind == "group" then
-            self.label:SetFontObject(UI.fonts.small)
-            self.label:SetTextColor(UI.Color("faint"))
+            -- Dedicated faint FontObject — NO instance SetTextColor, so recycling
+            -- this pooled button as an addon/section entry later can't inherit a
+            -- stale faint color (the previous bug), and the heading still re-tints
+            -- live on ThemeChanged via the shared FontObject.
+            self.label:SetFontObject(navFaintFont)
             self.selBar:Hide(); self.hl:Hide()
         elseif kind == "section" then
             self.label:SetFontObject(selected and UI.fonts.accent or UI.fonts.muted)
