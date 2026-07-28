@@ -155,16 +155,22 @@ function UI.MakeCheckbox(parent, opts)
 end
 
 -- 2 ── Slider (with value readout) ─────────────────────────────────────────────
--- opts = { label=, min=, max=, step=, get=, set=, format=function(v)->str, width= }
+-- opts = { label=, min=, max=, step=, get=, set=, format=function(v)->str, width=,
+--          compact=bool }
+-- `compact` tightens the label-to-track spacing (track pulled up, frame 36px tall
+-- instead of 44) for dense settings stacks — opt-in, so existing sliders are
+-- unchanged. Round-10 Frame-Settings compaction (item 4).
 function UI.MakeSlider(parent, opts)
     opts = opts or {}
     local width = opts.width or 200
     local minV, maxV = opts.min or 0, opts.max or 1
     local step = opts.step or 0.1
     local fmt  = opts.format or function(v) return tostring(v) end
+    local compact = opts.compact and true or false
+    local FRAME_H = compact and 36 or 44
 
     local frame = CreateFrame("Frame", nil, parent)
-    frame:SetSize(width, 44)
+    frame:SetSize(width, FRAME_H)
 
     local lbl = fontString(frame, "body")
     anchorTL(lbl, frame, 0, 0)
@@ -174,7 +180,7 @@ function UI.MakeSlider(parent, opts)
     val:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
     val:SetJustifyH("RIGHT")
 
-    local trackY = -24
+    local trackY = compact and -19 or -24
     local track = UI.FlatFrame(frame, "inset", "border")
     track:SetHeight(6)
     track:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, trackY)
@@ -214,7 +220,7 @@ function UI.MakeSlider(parent, opts)
     frame:SetScript("OnShow", function() frame.Refresh() end)
     frame.Refresh()
 
-    frame.uiHeight = 44
+    frame.uiHeight = FRAME_H
     frame.uiWidth  = width
     frame._fillWidth = true      -- stretch to available width in a row
     return frame
@@ -485,12 +491,16 @@ function UI.MakeHint(parent, text)
 end
 
 -- 8 ── SegmentedChoice (pill row; replaces overlapping toggle rows) ────────────
--- opts = { choices = { {value=, text=}, ... }, get=, set= }
+-- opts = { choices = { {value=, text=}, ... }, get=, set=, compact=bool }
+-- `compact` narrows each segment's side padding (min 44 / +14 vs 52 / +22) for dense
+-- one-line settings rows — opt-in, so existing segmented controls are unchanged.
 function UI.MakeSegmented(parent, opts)
     opts = opts or {}
     local frame = CreateFrame("Frame", nil, parent)
     local h = 24
     frame:SetHeight(h)
+    local segMin = opts.compact and 44 or 52
+    local segPad = opts.compact and 14 or 22
 
     local segs = {}
     local function refresh()
@@ -508,7 +518,7 @@ function UI.MakeSegmented(parent, opts)
         local sl = fontString(seg, "body")
         sl:SetPoint("CENTER", seg, "CENTER", 0, 0)
         sl:SetText(text)
-        seg:SetWidth(math.max(52, (sl:GetStringWidth() or 30) + 22))
+        seg:SetWidth(math.max(segMin, (sl:GetStringWidth() or 30) + segPad))
         seg._active = false
         seg._setActive = function(self, on)
             self._active = on
@@ -560,14 +570,23 @@ function UI.MakeList(parent, opts)
     child:SetSize(1, 1)
     scroll:SetScrollChild(child)
     scroll:SetScript("OnMouseWheel", function(self, delta)
-        local cur = self:GetVerticalScroll()
         local maxs = math.max(0, child:GetHeight() - self:GetHeight())
-        self:SetVerticalScroll(math.max(0, math.min(maxs, cur - delta * 24)))
+        if maxs > 0 then
+            local cur = self:GetVerticalScroll()
+            self:SetVerticalScroll(math.max(0, math.min(maxs, cur - delta * 24)))
+        else
+            -- List content fits: hand the wheel to the page pane behind us so the
+            -- window keeps scrolling when the cursor is over a short list (round-10).
+            UI.ForwardWheelToPane(self, delta)
+        end
     end)
 
     frame._rows = {}
     frame._selected = opts.selected
 
+    -- items may include non-selectable subheaders: { header = true, text = "ACTIVE" }.
+    -- They render as a muted-small label (no dot, no click/hover) so a list can group
+    -- its entries under in-list headers (round-10 item 1: Active-on-top profiles).
     local ROW_H = 22
     function frame:Rebuild()
         local items = (opts.items and opts.items()) or {}
@@ -598,18 +617,38 @@ function UI.MakeList(parent, opts)
             row:ClearAllPoints()
             row:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -((i - 1) * ROW_H))
             row:SetPoint("TOPRIGHT", child, "TOPRIGHT", 0, -((i - 1) * ROW_H))
-            row.lbl:SetText(item.text or "")
-            local dotToken = item.status == "ok" and "ok" or item.status == "danger" and "danger" or "faint"
-            row.dot:SetColorTexture(UI.Color(dotToken))
-            row._value = item.value
-            row._sel = (self._selected ~= nil and item.value == self._selected)
-            row.hl:SetShown(row._sel)
-            if row._sel then row.hl:SetColorTexture(UI.Color("accent", 0.22)) end
-            row:SetScript("OnClick", function(s)
-                frame._selected = s._value
-                frame:Rebuild()
-                if opts.onSelect then opts.onSelect(s._value) end
-            end)
+            row.lbl:ClearAllPoints()
+            if item.header then
+                -- Subheader: muted-small, no dot, spans the row, not interactive.
+                row.dot:Hide()
+                row.lbl:SetPoint("LEFT", row, "LEFT", 6, 0)
+                row.lbl:SetPoint("RIGHT", row, "RIGHT", -6, 0)
+                row.lbl:SetFontObject(UI.fonts.small)
+                row.lbl:SetTextColor(UI.Color("muted"))
+                row.lbl:SetText(item.text or "")
+                row._value, row._sel = nil, false
+                row.hl:Hide()
+                row:EnableMouse(false)
+                row:SetScript("OnClick", nil)
+            else
+                row:EnableMouse(true)
+                row.dot:Show()
+                row.lbl:SetPoint("LEFT", row, "LEFT", 20, 0)
+                row.lbl:SetPoint("RIGHT", row, "RIGHT", -6, 0)
+                row.lbl:SetFontObject(UI.fonts.body)   -- resets font + color if reused from a header
+                row.lbl:SetText(item.text or "")
+                local dotToken = item.status == "ok" and "ok" or item.status == "danger" and "danger" or "faint"
+                row.dot:SetColorTexture(UI.Color(dotToken))
+                row._value = item.value
+                row._sel = (self._selected ~= nil and item.value == self._selected)
+                row.hl:SetShown(row._sel)
+                if row._sel then row.hl:SetColorTexture(UI.Color("accent", 0.22)) end
+                row:SetScript("OnClick", function(s)
+                    frame._selected = s._value
+                    frame:Rebuild()
+                    if opts.onSelect then opts.onSelect(s._value) end
+                end)
+            end
             row:Show()
         end
         child:SetHeight(math.max(1, #items * ROW_H))
@@ -998,6 +1037,32 @@ local function newFlow(pane, indent)
     return flow
 end
 
+-- ── Wheel forwarding (round-10 scroll-bug fix, framework layer) ───────────────
+-- WoW delivers a mouse-wheel event ONLY to the top frame under the cursor that has
+-- EnableMouseWheel(true); it never bubbles to ancestors. So any nested scroll region
+-- (an EditorCard's inner noBar pane whose scroll covers the whole card, a MakeList
+-- viewport, a custom list) SWALLOWS the wheel — and if it has nothing of its own to
+-- scroll, the gesture is simply lost and the page pane behind it stops scrolling.
+-- That is exactly the "can't scroll while the Buff Editor is open" bug: the editor
+-- card's inner pane is noBar (no scrollbar), its OnMouseWheel had nothing to do, and
+-- it consumed every wheel tick. Each such region now calls this to hand an unconsumed
+-- wheel to the nearest ANCESTOR pane that actually can scroll, so every panel benefits.
+function UI.ForwardWheelToPane(frame, delta)
+    local p = frame and frame:GetParent()
+    while p do
+        local op = p._ownerPane
+        if op and op.bar and op.scroll and op.child then
+            local maxS = math.max(0, op.child:GetHeight() - op.scroll:GetHeight())
+            if maxS > 0 then
+                op.bar:SetValue(op.bar:GetValue() - delta * 32)
+                return true
+            end
+        end
+        p = p:GetParent()
+    end
+    return false
+end
+
 -- ── Pane (scroll + clip content host) ─────────────────────────────────────────
 -- opts (optional) = { padTop=, padBottom=, padX=, noBar= }
 function UI.CreatePane(parent, opts)
@@ -1019,6 +1084,8 @@ function UI.CreatePane(parent, opts)
     local child = CreateFrame("Frame", nil, scroll)
     child:SetSize(1, 1)
     scroll:SetScrollChild(child)
+
+    scroll._ownerPane = pane   -- lets UI.ForwardWheelToPane find this pane from a descendant
 
     pane.scroll, pane.child = scroll, child
     pane.blocks = {}
@@ -1048,8 +1115,17 @@ function UI.CreatePane(parent, opts)
     end
 
     scroll:SetScript("OnMouseWheel", function(self, delta)
-        if not pane.bar then return end
-        pane.bar:SetValue(pane.bar:GetValue() - delta * 32)
+        if pane.bar then
+            local maxS = math.max(0, child:GetHeight() - self:GetHeight())
+            if maxS > 0 then
+                pane.bar:SetValue(pane.bar:GetValue() - delta * 32)
+                return
+            end
+        end
+        -- Nothing to scroll here (a noBar inner pane, or content that already fits):
+        -- pass the gesture up to the nearest scrollable ancestor pane so the window
+        -- keeps scrolling even while a nested card/pane sits under the cursor.
+        UI.ForwardWheelToPane(self, delta)
     end)
     scroll:SetScript("OnSizeChanged", function() pane:Layout() end)
 
