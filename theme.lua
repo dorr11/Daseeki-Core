@@ -55,6 +55,7 @@ local DEFAULT_TOKENS = {
     faint      = { 0.4275, 0.3922, 0.3137 }, -- #6D6450  faint text / disabled
     ok         = { 0.5098, 0.7490, 0.4196 }, -- #82BF6B  positive / on
     danger     = { 0.8118, 0.3647, 0.2902 }, -- #CF5D4A  destructive / off
+    warn       = { 0.9600, 0.7600, 0.1800 }, -- #F5C22E  caution / below-normal (amber-gold)
 
     -- control surfaces (contrast step-up): button/input/list/card fills & borders
     -- read as controls at in-game gamma — brighter than raised/borderLite, same warmth.
@@ -181,6 +182,7 @@ UI.RegisterTheme("Neutral Slate", {
     faint      = { 0.3608, 0.4000, 0.4588 }, -- #5C6675
     ok         = { 0.4353, 0.7490, 0.5569 }, -- #6FBF8E
     danger     = { 0.8157, 0.4157, 0.3529 }, -- #D06A5A
+    warn       = { 0.9098, 0.7020, 0.2431 }, -- #E8B33E  warm amber against cool slate
 
     -- control surfaces (contrast step-up) — brighter than raised/borderLite, same slate.
     control       = { 0.1843, 0.2078, 0.2471 }, -- #2F353F  (vs raised #262B33)
@@ -205,6 +207,7 @@ UI.RegisterTheme("Orgrimmar Ember", {
     faint      = { 0.4863, 0.4078, 0.3216 }, -- #7C6852
     ok         = { 0.4353, 0.7098, 0.3373 }, -- #6FB556  positive green (hue ~104)
     danger     = { 0.7686, 0.1922, 0.2745 }, -- #C43146  cooler crimson (hue ~351)
+    warn       = { 0.9490, 0.7569, 0.3059 }, -- #F2C14E  golden-yellow, pushed off the ember accent (hue ~45)
 
     -- control surfaces (contrast step-up) — brighter than raised/borderLite, same umber.
     control       = { 0.2000, 0.1333, 0.1020 }, -- #33221A  (vs raised #2E201A)
@@ -227,6 +230,7 @@ UI.RegisterTheme("Stormwind Regalia", {
     faint      = { 0.4118, 0.4627, 0.5725 }, -- #697692
     ok         = { 0.3725, 0.7216, 0.4980 }, -- #5FB87F  positive green
     danger     = { 0.8157, 0.3412, 0.2980 }, -- #D0574C
+    warn       = { 0.9412, 0.7686, 0.2353 }, -- #F0C43C  brighter yellow-gold, distinct from the gold accentDim
 
     -- control surfaces (contrast step-up) — brighter than raised/borderLite, same navy.
     control       = { 0.1176, 0.1608, 0.2471 }, -- #1E293F  (vs raised #1B263F)
@@ -249,6 +253,7 @@ UI.RegisterTheme("Felwood", {
     faint      = { 0.4118, 0.4627, 0.3961 }, -- #697665
     ok         = { 0.2471, 0.7216, 0.6039 }, -- #3FB89A  teal on-state (hue ~165, off the accent)
     danger     = { 0.8392, 0.2588, 0.1961 }, -- #D64232  red pops (hue ~6)
+    warn       = { 0.8784, 0.7059, 0.1608 }, -- #E0B429  amber (hue ~45), clear of the fel-green accent and teal ok
 
     -- control surfaces (contrast step-up) — brighter than raised/borderLite, same fel tint.
     control       = { 0.1216, 0.1804, 0.1137 }, -- #1F2E1D  (vs raised #19271A)
@@ -271,6 +276,7 @@ UI.RegisterTheme("Winterspring Frost", {
     faint      = { 0.4078, 0.4745, 0.5529 }, -- #68798D
     ok         = { 0.3608, 0.7216, 0.5412 }, -- #5CB88A  positive green
     danger     = { 0.8431, 0.3569, 0.2902 }, -- #D75B4A  red pops on ice
+    warn       = { 0.9216, 0.7608, 0.2980 }, -- #EBC24C  warm amber pops against the icy palette
 
     -- control surfaces (contrast step-up) — brighter than raised/borderLite, same frost slate.
     control       = { 0.1098, 0.1569, 0.2196 }, -- #1C2838  (vs raised #1A2436)
