@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+- Field Ledger material now reads at game gamma (BRAND_SPEC §4/§5a): the grain substrate
+  is regenerated as a parchment-white two-octave texture (±6% amplitude ceiling) so raising
+  the veil lightens the ground gutters toward parchment instead of muddying them dark, and
+  the aged-edge vignette + bronze keyline strengthen a visible step. New material dial in
+  Core > Appearance (Subtle / Standard / Strong; Standard is default); `/daseekiui debug
+  material` cycles it live for A/B. The choice persists (DaseekiCoreDB.materialPreset).
+
 ## 2.0.0
 - Complete settings-window overhaul: new DaseekiUI framework replaces the old fixed hub.
 - Sidebar navigation (suite addons + Core pages) with breadcrumb title bar.

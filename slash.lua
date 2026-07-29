@@ -4,6 +4,9 @@
     /daseeki <id>     → open directly to a registered section (e.g. /daseeki bufftracker).
     /daseeki debug    → toggle the DaseekiUI layout debug overlay (block outlines).
     /daseekiui debug  → same overlay toggle (framework-scoped alias).
+    /daseekiui debug material → cycle the Field Ledger material preset (subtle → standard
+                        → strong) live so the owner can A/B the grain/vignette/keyline at
+                        game gamma; the choice persists (BRAND_SPEC §4/§5a).
 --]]
 
 local _, Core = ...
@@ -19,6 +22,27 @@ local function toggleDebug()
     if DaseekiUI and DaseekiUI.PrintKitDebug then DaseekiUI.PrintKitDebug() end
 end
 
+-- Cycle the material preset (subtle → standard → strong → subtle) and repaint every
+-- registered ground live (BRAND_SPEC §4/§5a material A/B). Persists via SetMaterialPreset.
+local function cycleMaterial()
+    local UI = DaseekiUI
+    if not (UI and UI.SetMaterialPreset and UI.GetMaterialPresetNames) then
+        print("|cff00ccff[Daseeki Suite]|r Material presets unavailable.")
+        return
+    end
+    local order = UI.GetMaterialPresetNames()
+    local cur = UI.GetMaterialPreset()
+    local idx = 1
+    for i, n in ipairs(order) do if n == cur then idx = i break end end
+    local nextName = order[(idx % #order) + 1]
+    UI.SetMaterialPreset(nextName)
+    local ap = UI.MATERIAL_PRESETS and UI.MATERIAL_PRESETS[nextName]
+    print("|cff00ccff[Daseeki Suite]|r Material preset → |cffece3d0" .. nextName .. "|r" ..
+        (ap and ("  (grain veil " .. math.floor(ap.grainAlpha * 100) .. "%, aged edge " ..
+                 ap.vigWidth .. "px)") or "") ..
+        ".  Open the suite window to A/B the parchment tooth + edges.")
+end
+
 SLASH_DASEEKISUITE1 = "/daseeki"
 SLASH_DASEEKISUITE2 = "/das"
 SlashCmdList["DASEEKISUITE"] = function(msg)
@@ -27,6 +51,8 @@ SlashCmdList["DASEEKISUITE"] = function(msg)
         Core:ToggleMinimapButton()
         print("|cff00ccff[Daseeki Suite]|r Minimap button " ..
             ((Core.db and Core.db.minimapHide) and "hidden" or "shown") .. ".")
+    elseif msg == "debug material" or msg == "material" then
+        cycleMaterial()
     elseif msg == "debug" then
         toggleDebug()
     elseif msg ~= "" and Core.sections[msg] then
@@ -40,7 +66,9 @@ end
 SLASH_DASEEKIUI1 = "/daseekiui"
 SlashCmdList["DASEEKIUI"] = function(msg)
     msg = strtrim(msg or ""):lower()
-    if msg == "" or msg == "debug" then
+    if msg == "debug material" or msg == "material" then
+        cycleMaterial()
+    elseif msg == "" or msg == "debug" then
         toggleDebug()
     else
         Core:Toggle()

@@ -31,11 +31,21 @@
           1px physical rule, pixel-snapped; re-snaps on UI_SCALE_CHANGED/DISPLAY_SIZE_CHANGED.
 
       UI.PaintLedgerGround(frame[, opts]) -> painter   (grain + vignette + bronze keyline)
-          opts = { grainToken="panel", grainAlpha=0.5, vignetteToken="ground",
-                   keylineToken="bronze", keyline=true }
+          opts = { grainToken="panel", vignetteToken="ground", keylineToken="bronze",
+                   keyline=true,
+                   -- per-frame OVERRIDES (default: driven by the active material preset)
+                   grainAlpha=, vigWidth=, vigAlpha=, keyBoost= }
+          The grain/vignette/keyline STRENGTH is driven by the active material preset
+          (UI.GetMaterialPreset / UI.SetMaterialPreset — subtle|standard|strong) so the
+          owner can A/B it live; any opts.* override wins over the preset for that frame.
+          Re-invoking on the same frame RE-TUNES it (no leaked skin closures).
           LAYERING CONTRACT: paints BACKGROUND draw-layers ONLY. Text/numerals/hairlines
           must live on child frames with their own flat fill so glyphs never sit on grain
           (BRAND_SPEC §4 "never under text").
+
+      UI.SetMaterialPreset(name) / UI.GetMaterialPreset() / UI.GetMaterialPresetNames()
+          The material dial (BRAND_SPEC §4/§5a). name = "subtle" | "standard" | "strong".
+          Persists to the Core setting and live-repaints every registered ground.
 
       UI.MakerMark(parent[, opts]) -> mark             (bronze diamond frame + crimson "D")
           opts = { size=20 }.  Titlebar hallmark only (BRAND_SPEC §4/§5 one per window).
@@ -50,7 +60,7 @@
       UI.fonts.numeral     — ARIALN + OUTLINE, telemetry numerals (countdowns/values)
 --]]
 
-local ADDON = ...
+local ADDON, Core = ...   -- Core is the shared addon-private table (same one core.lua fills)
 local UI = DaseekiUI
 
 -- Asset paths (shipped under Core/textures/, power-of-two, brand-original).
@@ -343,6 +353,46 @@ end
 -- ════════════════════════════════════════════════════════════════════════════
 --  5 ── UI.PaintLedgerGround — grain substrate + aged-edge vignette + bronze keyline
 -- ════════════════════════════════════════════════════════════════════════════
+-- Material presets — the grain/vignette/keyline STRENGTH dial (BRAND_SPEC §4/§5a: the
+-- material layer must be VISIBLY present at game gamma). grainAlpha rides the on-screen
+-- luminance modulation; the grain TGA's relative amplitude is fixed at ±6%, so effective
+-- modulation == TGA amplitude × grainAlpha and can never exceed ±6% (strong = alpha 1.0).
+-- vigWidth/vigAlpha widen+deepen the aged-edge fade; keyBoost brightens the bronze keyline
+-- one visible step. "subtle" reproduces the R0 default's faint on-screen swing (the A/B
+-- reference, minus R0's gutter-darkening bug); "standard" ships as the default; "strong"
+-- is the ceiling. Measured effective modulation (Field Ledger, base=ground): subtle ~2.7%,
+-- standard ~5.0%, strong ~6.0%.
+UI.MATERIAL_PRESETS = UI.MATERIAL_PRESETS or {
+    subtle   = { grainAlpha = 0.40, vigWidth = 14, vigAlpha = 0.55, keyBoost = 0.00 },
+    standard = { grainAlpha = 0.80, vigWidth = 24, vigAlpha = 0.72, keyBoost = 0.22 },
+    strong   = { grainAlpha = 1.00, vigWidth = 34, vigAlpha = 0.90, keyBoost = 0.42 },
+}
+UI.MATERIAL_PRESET_ORDER = UI.MATERIAL_PRESET_ORDER or { "subtle", "standard", "strong" }
+UI._materialPreset = UI._materialPreset or "standard"   -- provisional; SavedVars re-applies
+UI._grounds = UI._grounds or {}                          -- painter registry for live repaint
+
+local function activePreset()
+    return UI.MATERIAL_PRESETS[UI._materialPreset] or UI.MATERIAL_PRESETS.standard
+end
+
+function UI.GetMaterialPreset()      return UI._materialPreset end
+function UI.GetMaterialPresetNames() return UI.MATERIAL_PRESET_ORDER end
+
+-- Activate a material preset: persist (additive Core setting) + live-repaint every
+-- registered ground. Falls back to "standard" for an unknown name.
+function UI.SetMaterialPreset(name)
+    if not UI.MATERIAL_PRESETS[name] then name = "standard" end
+    UI._materialPreset = name
+    if Core and Core.db then Core.db.materialPreset = name end
+    for painter in pairs(UI._grounds) do
+        if painter.__apply and not painter.__dead then painter.__apply() end
+    end
+    return name
+end
+
+-- ════════════════════════════════════════════════════════════════════════════
+--  5 ── UI.PaintLedgerGround — grain substrate + aged-edge vignette + bronze keyline
+-- ════════════════════════════════════════════════════════════════════════════
 -- LAYERING CONTRACT (BRAND_SPEC §4): everything here is BACKGROUND draw-layer. Callers
 -- put text/numerals on child frames with a flat fill so grain never sits under glyphs.
 function UI.PaintLedgerGround(frame, opts)
@@ -350,7 +400,9 @@ function UI.PaintLedgerGround(frame, opts)
     local painter = frame.__ledgerGround
     if not painter then
         painter = {}
-        -- grain overlay (tiled), tinted by SetVertexColor; low alpha keeps amplitude tiny
+        local keylineToken = opts.keylineToken or "bronze"
+
+        -- grain overlay (tiled), tinted by SetVertexColor; the veil alpha rides amplitude
         local grain = frame:CreateTexture(nil, "BACKGROUND", nil, 1)
         grain:SetTexture(UI.TEX_GRAIN, "REPEAT", "REPEAT")
         grain:SetAllPoints(frame)
@@ -358,26 +410,25 @@ function UI.PaintLedgerGround(frame, opts)
         grain:SetVertTile(true)
         painter.grain = grain
 
-        -- aged-edge vignette: four inward-fading darkened bars (no extra asset).
+        -- aged-edge vignette: four inward-fading darkened bars (no extra asset). Sizes +
+        -- anchors are (re)applied in __apply so a preset change can widen the fade live.
         painter.vig = {
             top    = frame:CreateTexture(nil, "BACKGROUND", nil, 2),
             bottom = frame:CreateTexture(nil, "BACKGROUND", nil, 2),
             left   = frame:CreateTexture(nil, "BACKGROUND", nil, 2),
             right  = frame:CreateTexture(nil, "BACKGROUND", nil, 2),
         }
-        local VIG = 14
-        local v = painter.vig
-        v.top:SetTexture(WHITE);    v.top:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0);        v.top:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0);       v.top:SetHeight(VIG)
-        v.bottom:SetTexture(WHITE); v.bottom:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0); v.bottom:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0); v.bottom:SetHeight(VIG)
-        v.left:SetTexture(WHITE);   v.left:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -VIG);     v.left:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, VIG);  v.left:SetWidth(VIG)
-        v.right:SetTexture(WHITE);  v.right:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, -VIG);  v.right:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, VIG); v.right:SetWidth(VIG)
+        for _, t in pairs(painter.vig) do t:SetTexture(WHITE) end
 
-        -- 1px bronze keyline (four pixel-snapped edges) — ONE per window (§4/§5).
+        -- 1px bronze keyline (four pixel-snapped edges) — ONE per window (§4/§5). The
+        -- Hairlines carry their own bronze skin; __apply overrides the color (keyBoost)
+        -- AFTER that skin runs (UI.Skin registration order), so a brightened keyline
+        -- survives a live theme switch.
         painter.keyline = {
-            UI.Hairline(frame, { token = opts.keylineToken or "bronze", layer = "BORDER" }),
-            UI.Hairline(frame, { token = opts.keylineToken or "bronze", layer = "BORDER" }),
-            UI.Hairline(frame, { token = opts.keylineToken or "bronze", layer = "BORDER", vertical = true }),
-            UI.Hairline(frame, { token = opts.keylineToken or "bronze", layer = "BORDER", vertical = true }),
+            UI.Hairline(frame, { token = keylineToken, layer = "BORDER" }),
+            UI.Hairline(frame, { token = keylineToken, layer = "BORDER" }),
+            UI.Hairline(frame, { token = keylineToken, layer = "BORDER", vertical = true }),
+            UI.Hairline(frame, { token = keylineToken, layer = "BORDER", vertical = true }),
         }
         local k = painter.keyline
         k[1]:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0);     k[1]:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
@@ -385,35 +436,69 @@ function UI.PaintLedgerGround(frame, opts)
         k[3]:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0);     k[3]:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
         k[4]:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0);   k[4]:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
 
-        frame.__ledgerGround = painter
-    end
+        painter.__params = {}
+        -- The ONE apply closure: reads the ACTIVE preset + per-frame overrides and paints
+        -- grain/vignette/keyline. Registered once via UI.Skin (re-runs on ThemeChanged) and
+        -- invoked directly by UI.SetMaterialPreset for a live A/B repaint. Re-invoking
+        -- PaintLedgerGround only mutates __params + calls this — no leaked skin closures.
+        painter.__apply = function()
+            local p = painter.__params
+            local preset = activePreset()
+            local grainToken  = p.grainToken    or "panel"
+            local grainAlpha  = p.grainAlpha    or preset.grainAlpha
+            local vigToken    = p.vignetteToken or "ground"
+            local vigWidth    = p.vigWidth      or preset.vigWidth
+            local vigAlpha    = p.vigAlpha      or preset.vigAlpha
+            local keyBoost    = p.keyBoost      or preset.keyBoost
+            local showKeyline = p.keyline ~= false
 
-    local grainToken   = opts.grainToken or "panel"
-    local grainAlpha   = opts.grainAlpha or 0.5
-    local vigToken     = opts.vignetteToken or "ground"
-    local showKeyline  = opts.keyline ~= false
+            painter.grain:SetVertexColor(UI.Color(grainToken))
+            painter.grain:SetAlpha(grainAlpha)
 
-    UI.Skin(frame, function()
-        painter.grain:SetVertexColor(UI.Color(grainToken))
-        painter.grain:SetAlpha(grainAlpha)
-        local vr, vg, vb = UI.Color(vigToken)
-        for edge, t in pairs(painter.vig) do
-            local horiz = (edge == "top" or edge == "bottom")
-            -- darken inward: opaque at the edge -> transparent toward center
-            local o = (edge == "top" or edge == "left")
-            local orient = horiz and "VERTICAL" or "HORIZONTAL"
-            local c0 = CreateColor and CreateColor(vr, vg, vb, 0.55) or { r=vr, g=vg, b=vb, a=0.55 }
-            local c1 = CreateColor and CreateColor(vr, vg, vb, 0.0)  or { r=vr, g=vg, b=vb, a=0.0 }
-            if edge == "top" or edge == "left" then
-                t:SetGradient(orient, c0, c1)
-            else
-                t:SetGradient(orient, c1, c0)
+            -- (re)anchor + size the vignette bars to the current width, then gradient them.
+            local v = painter.vig
+            v.top:ClearAllPoints();    v.top:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0);           v.top:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0);           v.top:SetHeight(vigWidth)
+            v.bottom:ClearAllPoints(); v.bottom:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0);  v.bottom:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0);  v.bottom:SetHeight(vigWidth)
+            v.left:ClearAllPoints();   v.left:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -vigWidth);   v.left:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, vigWidth);  v.left:SetWidth(vigWidth)
+            v.right:ClearAllPoints();  v.right:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, -vigWidth); v.right:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, vigWidth); v.right:SetWidth(vigWidth)
+            local vr, vg, vb = UI.Color(vigToken)
+            for edge, t in pairs(v) do
+                local horiz  = (edge == "top" or edge == "bottom")
+                local orient = horiz and "VERTICAL" or "HORIZONTAL"
+                -- darken inward: opaque at the edge -> transparent toward center
+                local c0 = CreateColor and CreateColor(vr, vg, vb, vigAlpha) or { r=vr, g=vg, b=vb, a=vigAlpha }
+                local c1 = CreateColor and CreateColor(vr, vg, vb, 0.0)      or { r=vr, g=vg, b=vb, a=0.0 }
+                if edge == "top" or edge == "left" then
+                    t:SetGradient(orient, c0, c1)
+                else
+                    t:SetGradient(orient, c1, c0)
+                end
+            end
+
+            -- keyline: brightened bronze (keyBoost) — one visible step at standard/strong.
+            local kr, kg, kb = UI.Color(keylineToken)      -- drop the alpha return
+            kr, kg, kb = brighten(kr, kg, kb, keyBoost)
+            for _, ln in ipairs(painter.keyline) do
+                ln:SetColorTexture(kr, kg, kb)
+                ln:SetShown(showKeyline)
             end
         end
-        for _, ln in ipairs(painter.keyline) do
-            ln:SetShown(showKeyline)
-        end
-    end)
+
+        frame.__ledgerGround = painter
+        UI._grounds[painter] = true
+        UI.Skin(frame, painter.__apply)   -- runs now + re-runs on every ThemeChanged
+    end
+
+    -- Update per-frame overrides (only the keys the caller passed) and re-tune live.
+    local pr = painter.__params
+    pr.grainToken    = opts.grainToken
+    pr.grainAlpha    = opts.grainAlpha
+    pr.vignetteToken = opts.vignetteToken
+    pr.vigWidth      = opts.vigWidth
+    pr.vigAlpha      = opts.vigAlpha
+    pr.keyBoost      = opts.keyBoost
+    pr.keyline       = opts.keyline
+    painter.__apply()
     return painter
 end
 
@@ -534,4 +619,22 @@ function UI.PrintKitDebug()
     local ok, lines = UI.LedgerSelfTest()
     print(P .. "Token completeness: " .. (ok and "|cff82bf6bALL THEMES OK|r" or "|cffcf5d4aFAILURES|r"))
     for _, l in ipairs(lines) do print(P .. "  " .. l) end
+    local mp = UI.GetMaterialPreset()
+    local ap = UI.MATERIAL_PRESETS[mp]
+    print(P .. "Material preset: |cffece3d0" .. tostring(mp) .. "|r" ..
+          (ap and (" (grainAlpha " .. ap.grainAlpha .. ", vig " .. ap.vigWidth .. "px)") or ""))
 end
+
+-- ════════════════════════════════════════════════════════════════════════════
+--  9 ── Apply the persisted material preset once SavedVariables load
+-- ════════════════════════════════════════════════════════════════════════════
+-- Mirrors theme.lua: core.lua's ADDON_LOADED handler (earlier file) fills Core.db first,
+-- so Core.db.materialPreset is available here. Fresh installs default to "standard"
+-- (BRAND_SPEC §5a — the material must read at game gamma); a saved owner choice wins.
+local matLoader = CreateFrame("Frame")
+matLoader:RegisterEvent("ADDON_LOADED")
+matLoader:SetScript("OnEvent", function(self, _, name)
+    if name ~= ADDON then return end
+    UI.SetMaterialPreset((Core and Core.db and Core.db.materialPreset) or "standard")
+    self:UnregisterEvent("ADDON_LOADED")
+end)

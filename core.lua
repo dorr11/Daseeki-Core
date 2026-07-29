@@ -41,6 +41,10 @@ local DB_DEFAULTS = {
     theme        = "Field Ledger",    -- fresh-install default (BRAND_SPEC §2). Applied
                                        -- ONLY when DaseekiCoreDB.theme is nil, so an
                                        -- existing player's saved choice is never changed.
+    materialPreset = "standard",       -- Field Ledger material dial (BRAND_SPEC §4/§5a):
+                                       -- subtle | standard | strong. ledgerkit.lua applies
+                                       -- this on ADDON_LOADED and /daseekiui debug material
+                                       -- cycles it live. Additive; existing saves default in.
 }
 
 -- Per-character window geometry (owner decision: size persisted per character).

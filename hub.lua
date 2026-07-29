@@ -311,6 +311,26 @@ local function BuildAppearance(flow)
         set     = function(v) UI.SetTheme(v) end,
     })
 
+    -- Material dial (BRAND_SPEC §4/§5a): grain/vignette/keyline strength. Live A/B; the
+    -- choice persists in the Core setting. Also cyclable via /daseekiui debug material.
+    if UI.GetMaterialPresetNames and UI.SetMaterialPreset then
+        local LABELS = { subtle = "Subtle", standard = "Standard", strong = "Strong" }
+        local choices = {}
+        for _, name in ipairs(UI.GetMaterialPresetNames()) do
+            choices[#choices + 1] = { value = name, text = LABELS[name] or name }
+        end
+        local matRow = appear:AddRow()
+        matRow:Dropdown({
+            label   = "Material",
+            width   = 220,
+            choices = choices,
+            get     = function() return UI.GetMaterialPreset() end,
+            set     = function(v) UI.SetMaterialPreset(v) end,
+        })
+        appear:Hint("Worn-parchment grain, aged edges, and the bronze keyline. " ..
+            "Standard is the shipped default; Strong is the ±6% ceiling.")
+    end
+
     appear:AddSeparator()
     appear:Hint("Active palette")
 
