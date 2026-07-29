@@ -31,9 +31,6 @@ local TITLE_H   = 34
 local SIDEBAR_W = 190
 local PAD       = 12
 
-local GEM_ICON      = "Interface\\AddOns\\Daseeki-Core\\art\\nightblade"
-local GEM_FALLBACK  = "Interface\\Icons\\INV_Misc_Gem_02"
-
 -- ── Geometry persistence (per character) ──────────────────────────────────────
 local function SaveGeometry(win)
     local db = Core.charDb
@@ -73,8 +70,11 @@ end
 -- carry a stale color across kinds.
 local navFaintFont = _G["DaseekiHubNavFaint"] or CreateFont("DaseekiHubNavFaint")
 local function ApplyNavFaintFont()
-    -- Mirror UI.fonts.small (bodyFace at smallSize), but tinted "faint".
-    navFaintFont:SetFont(UI.Token("bodyFace"), UI.Token("smallSize"), "")
+    -- Ledger micro-label dress (BRAND_SPEC §3): condensed ARIALN, faint tint, for the
+    -- uppercase SUITE/CORE group headings (the caller uppercases the text). ARIALN ships
+    -- with every client (zero shipped fonts). Same dedicated FontObject as before, so no
+    -- pooled nav button can inherit a stale instance color.
+    navFaintFont:SetFont("Fonts\\ARIALN.TTF", UI.Token("smallSize"), "")
     navFaintFont:SetTextColor(UI.Color("faint"))
     navFaintFont:SetJustifyH("LEFT")
 end
@@ -110,13 +110,17 @@ local function MakeNavButton(parent)
     b.label:SetJustifyH("LEFT")
     b.label:SetWordWrap(false)
 
+    -- Hover is CALM (BRAND_SPEC §5 attention-inversion): a quiet raised wash, never a
+    -- crimson tint — brand crimson is reserved for the SELECTED spine + fill.
     b:SetScript("OnEnter", function(self)
         if self._kind ~= "group" and not self._selected then
-            self.hl:SetColorTexture(UI.Color("accent", 0.10)); self.hl:Show()
+            self.hl:SetColorTexture(UI.Color("raised", 0.55)); self.hl:Show()
         end
     end)
     b:SetScript("OnLeave", function(self) if not self._selected then self.hl:Hide() end end)
 
+    -- Selected entry wears the Ledger dress: a BRAND spine (crimson, §5) + a solid RAISED
+    -- fill (the raised page-band), label in accent(=brand). Non-selected/hover stay calm.
     function b:Style(kind, selected)
         self._kind = kind
         self._selected = selected
@@ -129,14 +133,14 @@ local function MakeNavButton(parent)
             self.selBar:Hide(); self.hl:Hide()
         elseif kind == "section" then
             self.label:SetFontObject(selected and UI.fonts.accent or UI.fonts.muted)
-            self.selBar:SetColorTexture(UI.Color("accent"))
+            self.selBar:SetColorTexture(UI.Color("brand"))
             self.selBar:SetShown(selected)
-            self.hl:SetColorTexture(UI.Color("accent", 0.16)); self.hl:SetShown(selected)
+            self.hl:SetColorTexture(UI.Color("raised")); self.hl:SetShown(selected)
         else -- addon
             self.label:SetFontObject(selected and UI.fonts.accent or UI.fonts.body)
-            self.selBar:SetColorTexture(UI.Color("accent"))
+            self.selBar:SetColorTexture(UI.Color("brand"))
             self.selBar:SetShown(selected)
-            self.hl:SetColorTexture(UI.Color("accent", 0.16)); self.hl:SetShown(selected)
+            self.hl:SetColorTexture(UI.Color("raised")); self.hl:SetShown(selected)
         end
     end
     return b
@@ -312,7 +316,9 @@ local function BuildAppearance(flow)
 
     -- Live swatch strip — re-colors itself on theme change.
     local swatchRow = appear:AddRow()
-    local names = { "ground", "panel", "raised", "accent", "text", "muted", "ok", "danger" }
+    -- Showcase the Field Ledger palette: ground ramp + brand/bronze/idle (the ledger
+    -- signature tokens) alongside text/muted so a theme's identity reads at a glance.
+    local names = { "ground", "panel", "raised", "brand", "bronze", "text", "muted", "idle" }
     local strip = CreateFrame("Frame", nil, swatchRow)
     strip.uiHeight = 30
     strip._fillWidth = true
@@ -351,6 +357,13 @@ function Core:EnsureHub()
         self:SetBackdropBorderColor(UI.Color("borderLite"))
     end)
 
+    -- The hub wears the Ledger ground: grain substrate + aged-edge vignette + the ONE
+    -- bronze keyline on the window border (BRAND_SPEC §4). Grain paints BACKGROUND only;
+    -- the sidebar (inset FlatFrame), titlebar (panel bg), and the content backer below all
+    -- draw opaque over it, so no glyph ever sits on grain (§4 "never under text"). Grain
+    -- shows only in the chrome gutters — the intended aged-ground read.
+    UI.PaintLedgerGround(win)
+
     tinsert(UISpecialFrames, "DaseekiSuiteHub")
 
     -- Title bar (drag to move).
@@ -368,16 +381,16 @@ function Core:EnsureHub()
     tbBg:SetPoint("BOTTOMRIGHT", titleBar, "BOTTOMRIGHT", -bi, 0)
     UI.Skin(tbBg, function(self) self:SetColorTexture(UI.Color("panel")) end)
 
-    local gem = titleBar:CreateTexture(nil, "ARTWORK")
-    gem:SetSize(18, 18)
-    gem:SetPoint("LEFT", titleBar, "LEFT", 10, 0)
-    gem:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    gem:SetTexture(GEM_ICON)
-    if not gem:GetTexture() then gem:SetTexture(GEM_FALLBACK) end
+    -- The ONE maker's mark for this window (BRAND_SPEC §4/§5): bronze rotated-square
+    -- frame + crimson MORPHEUS "D", titlebar hallmark only. Replaces the old nightblade
+    -- gem texture — the mark IS the brandmark now.
+    local mark = UI.MakerMark(titleBar, { size = 22 })
+    mark:SetPoint("LEFT", titleBar, "LEFT", 10, 0)
 
+    -- Suite wordmark in CEREMONIAL (MORPHEUS >=16, cream) — the mark + wordmark lockup.
     local title = titleBar:CreateFontString(nil, "OVERLAY")
-    title:SetFontObject(UI.fonts.header)
-    title:SetPoint("LEFT", gem, "RIGHT", 8, 0)
+    title:SetFontObject(UI.fonts.ceremonial)
+    title:SetPoint("LEFT", mark, "RIGHT", 8, 0)
     title:SetText("Daseeki Suite")
 
     local ver = C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata(ADDON, "Version")
@@ -430,6 +443,14 @@ function Core:EnsureHub()
     content:SetPoint("TOPLEFT", sidebarBox, "TOPRIGHT", PAD, 0)
     content:SetPoint("BOTTOMRIGHT", win, "BOTTOMRIGHT", -PAD, PAD)
     win.content = content
+
+    -- Opaque ground backer behind the content: the flow panes carry no fill of their own,
+    -- so without this the window grain would show under settings text (BRAND_SPEC §4).
+    -- Uses the "ground" token — visually identical to the old bare-on-ground content, but
+    -- now it masks the grain. This is the "flat panel backer under the text band" (R3-1).
+    local contentBg = content:CreateTexture(nil, "BACKGROUND")
+    contentBg:SetAllPoints(content)
+    UI.Skin(contentBg, function(self) self:SetColorTexture(UI.Color("ground")) end)
 
     -- Corner resize grip.
     local grip = CreateFrame("Button", nil, win)

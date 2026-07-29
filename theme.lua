@@ -199,7 +199,38 @@ end
 function UI.GetThemeName()  return UI._activeName end
 function UI.GetThemeNames() return UI._themeOrder end
 
--- ── Ship two v1 themes ────────────────────────────────────────────────────────
+-- ── "Field Ledger" — the LOCKED default, registered FIRST ─────────────────────
+-- Registration order IS the theme-picker order (UI.GetThemeNames) AND the SetTheme
+-- fallback (_themeOrder[1]); Field Ledger must lead both, so its RegisterTheme runs
+-- before every sibling. BRAND_SPEC §2 hexes, verbatim. Warm worn ink-on-parchment.
+-- accent=brand crimson (selection/urgency; rubricated headers read as a field-ledger's
+-- red headings); accentDim=bronzeDim (bronze keylines on buttons). Gold is retired here
+-- (survives only in the legacy themes below, §2).
+UI.RegisterTheme("Field Ledger", {
+    ground        = { 0.0902, 0.0784, 0.0667 }, -- #171411
+    panel         = { 0.1255, 0.1059, 0.0824 }, -- #201B15
+    raised        = { 0.1647, 0.1412, 0.1098 }, -- #2A241C
+    inset         = { 0.0706, 0.0627, 0.0471 }, -- #12100C  (flat, no grain)
+    border        = { 0.1961, 0.1647, 0.1255 }, -- #322A20
+    borderLite    = { 0.2706, 0.2275, 0.1686 }, -- #453A2B
+    control       = { 0.1725, 0.1451, 0.1098 }, -- #2C251C
+    controlBorder = { 0.2902, 0.2431, 0.1765 }, -- #4A3E2D  (cborder)
+    accent        = { 0.7529, 0.2824, 0.2353 }, -- = brand (crimson; selection/urgency)
+    accentDim     = { 0.4314, 0.3412, 0.1882 }, -- = bronzeDim (bronze keylines/borders)
+    brand         = { 0.7529, 0.2824, 0.2353 }, -- #C0483C  wax crimson
+    brandBright   = { 0.9098, 0.4196, 0.3529 }, -- #E86B5A  brighten target
+    bronze        = { 0.6118, 0.4784, 0.2706 }, -- #9C7A45  keylines/ornament ONLY
+    bronzeDim     = { 0.4314, 0.3412, 0.1882 }, -- #6E5730
+    text          = { 0.9255, 0.8902, 0.8157 }, -- #ECE3D0
+    muted         = { 0.6549, 0.6078, 0.5176 }, -- #A79B84  (>=4.5:1 on ground)
+    faint         = { 0.4314, 0.3882, 0.3137 }, -- #6E6350
+    idle          = { 0.3608, 0.3255, 0.2667 }, -- #5C5344  calm/owned state
+    ok            = { 0.4824, 0.6510, 0.3686 }, -- #7BA65E
+    warn          = { 0.8392, 0.6353, 0.2902 }, -- #D6A24A
+    danger        = { 0.8078, 0.2902, 0.2196 }, -- #CE4A38  (its own red, != brand)
+})
+
+-- ── Ship the legacy warm/cool themes (gold survives here only, §2) ─────────────
 -- "Ashenvale Gold" is the warm-dark placeholder from the mockups (== defaults).
 UI.RegisterTheme("Ashenvale Gold", nil)
 
@@ -352,34 +383,6 @@ UI.RegisterTheme("Winterspring Frost", {
     -- control surfaces (contrast step-up) — brighter than raised/borderLite, same frost slate.
     control       = { 0.1098, 0.1569, 0.2196 }, -- #1C2838  (vs raised #1A2436)
     controlBorder = { 0.2549, 0.3490, 0.4863 }, -- #41597C  (vs borderLite #35486A)
-})
-
--- ── "Field Ledger" — the LOCKED default (BRAND_SPEC §2 hexes, verbatim) ────────
--- Warm worn ink-on-parchment. accent=brand crimson (selection/urgency; rubricated
--- headers read as a field-ledger's red headings); accentDim=bronzeDim (bronze keylines
--- on buttons). Gold is retired here (survives only in the legacy themes above, §2).
-UI.RegisterTheme("Field Ledger", {
-    ground        = { 0.0902, 0.0784, 0.0667 }, -- #171411
-    panel         = { 0.1255, 0.1059, 0.0824 }, -- #201B15
-    raised        = { 0.1647, 0.1412, 0.1098 }, -- #2A241C
-    inset         = { 0.0706, 0.0627, 0.0471 }, -- #12100C  (flat, no grain)
-    border        = { 0.1961, 0.1647, 0.1255 }, -- #322A20
-    borderLite    = { 0.2706, 0.2275, 0.1686 }, -- #453A2B
-    control       = { 0.1725, 0.1451, 0.1098 }, -- #2C251C
-    controlBorder = { 0.2902, 0.2431, 0.1765 }, -- #4A3E2D  (cborder)
-    accent        = { 0.7529, 0.2824, 0.2353 }, -- = brand (crimson; selection/urgency)
-    accentDim     = { 0.4314, 0.3412, 0.1882 }, -- = bronzeDim (bronze keylines/borders)
-    brand         = { 0.7529, 0.2824, 0.2353 }, -- #C0483C  wax crimson
-    brandBright   = { 0.9098, 0.4196, 0.3529 }, -- #E86B5A  brighten target
-    bronze        = { 0.6118, 0.4784, 0.2706 }, -- #9C7A45  keylines/ornament ONLY
-    bronzeDim     = { 0.4314, 0.3412, 0.1882 }, -- #6E5730
-    text          = { 0.9255, 0.8902, 0.8157 }, -- #ECE3D0
-    muted         = { 0.6549, 0.6078, 0.5176 }, -- #A79B84  (>=4.5:1 on ground)
-    faint         = { 0.4314, 0.3882, 0.3137 }, -- #6E6350
-    idle          = { 0.3608, 0.3255, 0.2667 }, -- #5C5344  calm/owned state
-    ok            = { 0.4824, 0.6510, 0.3686 }, -- #7BA65E
-    warn          = { 0.8392, 0.6353, 0.2902 }, -- #D6A24A
-    danger        = { 0.8078, 0.2902, 0.2196 }, -- #CE4A38  (its own red, != brand)
 })
 
 -- Activate a provisional theme immediately so any widgets created before login

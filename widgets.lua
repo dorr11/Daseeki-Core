@@ -20,7 +20,11 @@
 
 local _, Core = ...
 
-local function DD_BACKDROP() return Core.DROPDOWN_BACKDROP end
+-- DaseekiUI is created by theme.lua (loaded earlier). UI.FLAT_BACKDROP / UI.Skin are
+-- added by daseekiui.lua, which loads AFTER this file — so they are referenced only at
+-- runtime inside the factories (never at file scope). The token dress here retires the
+-- legacy Blizzard tooltip-art backdrop + hardcoded Blizzard-blue/gray (BRAND_SPEC §11).
+local UI = DaseekiUI
 
 -- ── Slider ────────────────────────────────────────────────────────────────────
 local _sliderSeq = 0
@@ -140,9 +144,11 @@ function Core.MakeSimpleDropdown(parent, x, y, w, choices, onChange)
     local popup = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
     popup:SetFrameStrata("TOOLTIP")
     popup:SetWidth(w)
-    popup:SetBackdrop(DD_BACKDROP())
-    popup:SetBackdropColor(0.05, 0.05, 0.05, 0.97)
-    popup:SetBackdropBorderColor(0.5, 0.5, 0.5, 1)
+    UI.Skin(popup, function(self)
+        self:SetBackdrop(UI.FLAT_BACKDROP)
+        self:SetBackdropColor(UI.Color("panel"))
+        self:SetBackdropBorderColor(UI.Color("borderLite"))
+    end)
     popup:SetHeight(#choices * 22 + 8)
     popup:Hide()
 
@@ -151,11 +157,11 @@ function Core.MakeSimpleDropdown(parent, x, y, w, choices, onChange)
         row:SetSize(w - 6, 20)
         row:SetPoint("TOPLEFT", popup, "TOPLEFT", 3, -(i - 1) * 22 - 4)
         local rbg = row:CreateTexture(nil, "BACKGROUND"); rbg:SetAllPoints()
-        rbg:SetColorTexture(0.2, 0.4, 0.7, 0)
+        rbg:Hide()
         local rlbl = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         rlbl:SetPoint("LEFT", row, "LEFT", 6, 0); rlbl:SetText(choice)
-        row:SetScript("OnEnter", function() rbg:SetColorTexture(0.2, 0.4, 0.7, 0.5) end)
-        row:SetScript("OnLeave", function() rbg:SetColorTexture(0.2, 0.4, 0.7, 0) end)
+        row:SetScript("OnEnter", function() rbg:SetColorTexture(UI.Color("accent", 0.28)); rbg:Show() end)
+        row:SetScript("OnLeave", function() rbg:Hide() end)
         row:SetScript("OnClick", function()
             btn:SetValue(choice)
             popup:Hide()
@@ -202,50 +208,9 @@ function Core.MakeTableHeader(parent, text, w, px, py)
     return h
 end
 
--- ── Horizontal tab button (used by the hub's two tab rows) ────────────────────
--- opts = { icon=optionalTexture, text=, onClick= }. Auto-sizes to its content.
--- Exposes :SetSelected(bool) (underline + bg tint). Caller positions it.
-function Core.MakeTabButton(parent, opts)
-    opts = opts or {}
-    local b = CreateFrame("Button", nil, parent)
-    b:SetHeight(opts.icon and 28 or 24)
-
-    b.bg = b:CreateTexture(nil, "BACKGROUND")
-    b.bg:SetAllPoints(); b.bg:SetColorTexture(0.2, 0.4, 0.8, 0)
-
-    local hl = b:CreateTexture(nil, "HIGHLIGHT")
-    hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 0.10)
-    b:SetHighlightTexture(hl)
-
-    -- Selected underline (Daseeki gold).
-    b.sel = b:CreateTexture(nil, "ARTWORK")
-    b.sel:SetColorTexture(1, 0.82, 0, 1); b.sel:SetHeight(2)
-    b.sel:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", 4, 0)
-    b.sel:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -4, 0)
-    b.sel:Hide()
-
-    local px = 10
-    if opts.icon then
-        b.icon = b:CreateTexture(nil, "ARTWORK")
-        b.icon:SetSize(18, 18); b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        b.icon:SetPoint("LEFT", b, "LEFT", 8, 0); b.icon:SetTexture(opts.icon)
-        px = 30
-    end
-
-    b.label = b:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    b.label:SetPoint("LEFT", b, "LEFT", px, 0); b.label:SetText(opts.text or "")
-
-    b:SetWidth(math.max((opts.icon and 70 or 48), px + (b.label:GetStringWidth() or 40) + 12))
-
-    function b:SetSelected(on)
-        self.bg:SetColorTexture(0.2, 0.4, 0.8, on and 0.4 or 0)
-        self.sel:SetShown(on and true or false)
-        self.label:SetTextColor(on and 1 or 0.85, on and 0.95 or 0.85, on and 0.5 or 0.85)
-    end
-    if opts.onClick then b:SetScript("OnClick", opts.onClick) end
-    b:SetSelected(false)
-    return b
-end
+-- (Core.MakeTabButton removed — BRAND_SPEC §11. It was the last SN-gold {1,0.82,0}
+-- literal in the legacy path and had ZERO consumers across all suite addons; the hub's
+-- own MakeNavButton (hub.lua, token-driven, brand spine) is the only tab surface.)
 
 -- ── Live-search autocomplete dropdown attached to an EditBox ──────────────────
 -- getResults(query) -> array of tables; displayField shown in rows; valueField
@@ -258,9 +223,11 @@ function Core.AttachSearchDropdown(eb, dropW, getResults, displayField, valueFie
     local popup = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
     popup:SetFrameStrata("TOOLTIP")
     popup:SetWidth(dropW)
-    popup:SetBackdrop(DD_BACKDROP())
-    popup:SetBackdropColor(0.05, 0.05, 0.05, 0.97)
-    popup:SetBackdropBorderColor(0.5, 0.5, 0.5, 1)
+    UI.Skin(popup, function(self)
+        self:SetBackdrop(UI.FLAT_BACKDROP)
+        self:SetBackdropColor(UI.Color("panel"))
+        self:SetBackdropBorderColor(UI.Color("borderLite"))
+    end)
     popup:Hide()
     popup._rows = {}
 
@@ -279,7 +246,7 @@ function Core.AttachSearchDropdown(eb, dropW, getResults, displayField, valueFie
                 row = CreateFrame("Button", nil, popup)
                 row:SetHeight(ROW_H)
                 row.bg = row:CreateTexture(nil, "BACKGROUND"); row.bg:SetAllPoints()
-                row.bg:SetColorTexture(0.2, 0.4, 0.7, 0)
+                row.bg:Hide()
                 if iconGetter then
                     row.icon = row:CreateTexture(nil, "ARTWORK")
                     row.icon:SetSize(16, 16)
@@ -289,8 +256,8 @@ function Core.AttachSearchDropdown(eb, dropW, getResults, displayField, valueFie
                 row.lbl = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
                 row.lbl:SetPoint("LEFT", row, "LEFT", LBL_X, 0)
                 row.lbl:SetWidth(dropW - LBL_X - 10); row.lbl:SetJustifyH("LEFT")
-                row:SetScript("OnEnter", function(s) s.bg:SetColorTexture(0.2, 0.4, 0.7, 0.5) end)
-                row:SetScript("OnLeave", function(s) s.bg:SetColorTexture(0.2, 0.4, 0.7, 0) end)
+                row:SetScript("OnEnter", function(s) s.bg:SetColorTexture(UI.Color("accent", 0.28)); s.bg:Show() end)
+                row:SetScript("OnLeave", function(s) s.bg:Hide() end)
                 popup._rows[i] = row
             end
             row:ClearAllPoints()

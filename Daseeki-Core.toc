@@ -9,7 +9,6 @@
 
 core.lua
 theme.lua
-skin.lua
 widgets.lua
 daseekiui.lua
 ledgerkit.lua

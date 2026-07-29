@@ -438,19 +438,26 @@ function UI.MakeButton(parent, opts)
     return btn
 end
 
--- 6 ── Section header (serif accent title over a hairline rule) ────────────────
+-- 6 ── Section header (ceremonial title over a bronze underline) ───────────────
+-- Field Ledger dress (BRAND_SPEC §3/§4): a true section title is CEREMONIAL (MORPHEUS
+-- >=16, cream) underlined by ONE pixel-snapped BRONZE hairline. Geometry contract is
+-- unchanged from v1 — 26px block, rule at y=-22, TOPLEFT/RIGHT spans — so every one of
+-- the six consuming addons lays out identically; only the FACE (FRIZQT-accent -> MORPHEUS-
+-- cream) and the rule TOKEN (borderLite -> bronze) change (rendering-only, R0 additive).
 function UI.MakeSectionHeader(parent, text)
     local frame = CreateFrame("Frame", nil, parent)
     frame:SetHeight(26)
-    local lbl = fontString(frame, "header")
+    local lbl = frame:CreateFontString(nil, "OVERLAY")
+    lbl:SetFontObject(UI.fonts.ceremonial)   -- MORPHEUS >=16, cream (re-tinted on ThemeChanged)
     anchorTL(lbl, frame, 0, 0)
     lbl:SetText(text or "")
-    local rule = frame:CreateTexture(nil, "ARTWORK")
-    local ruleY = -22   -- hairline sits under the title inside the 26px header
-    rule:SetHeight(1)
+    -- Bronze underline = the one hairline per section. UI.Hairline is pixel-snapped and
+    -- re-snaps on scale/resize; it exists by the time any pane builds (ledgerkit loads
+    -- before hub). Same geometry as the old plain rule (y=-22, spans the header).
+    local rule = UI.Hairline(frame, { token = "bronze", layer = "ARTWORK" })
+    local ruleY = -22
     rule:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, ruleY)
     rule:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, ruleY)
-    UI.Skin(rule, function(self) self:SetColorTexture(UI.Color("borderLite")) end)
     frame.uiHeight = 26
     frame._label = lbl
     return frame
@@ -559,8 +566,12 @@ function UI.MakeSegmented(parent, opts)
 end
 
 -- 9 ── List (scrolling selection list with status dots) ────────────────────────
--- opts = { items = function()->{ {text=, status="ok"|"danger"|"muted", value=} },
+-- opts = { items = function()->{ {text=, status="ok"|"danger"|"idle"|nil, value=} },
 --          onSelect = function(value), height=, selected= }
+-- Status dots are plain SQUARE color pips (BRAND_SPEC §5). status: "ok"=green,
+-- "danger"=red, "idle"=calm/owned neutral (§2 attention-inversion — owned/held/fine
+-- reads calm, never tinted), any other/nil = faint. `idle` is additive: existing
+-- call sites that pass only ok/danger/nil are byte-for-byte unchanged.
 function UI.MakeList(parent, opts)
     opts = opts or {}
     local height = opts.height or 160
@@ -644,7 +655,10 @@ function UI.MakeList(parent, opts)
                 row.lbl:SetPoint("RIGHT", row, "RIGHT", -6, 0)
                 row.lbl:SetFontObject(UI.fonts.body)   -- resets font + color if reused from a header
                 row.lbl:SetText(item.text or "")
-                local dotToken = item.status == "ok" and "ok" or item.status == "danger" and "danger" or "faint"
+                local dotToken = item.status == "ok" and "ok"
+                    or item.status == "danger" and "danger"
+                    or item.status == "idle" and "idle"
+                    or "faint"
                 row.dot:SetColorTexture(UI.Color(dotToken))
                 row._value = item.value
                 row._sel = (self._selected ~= nil and item.value == self._selected)
@@ -1281,7 +1295,7 @@ function UI.Confirm(opts)
         local mpad, titleY, bodyY = 16, -14, -44   -- fixed modal chrome insets
         dlg.title = fontString(dlg, "accent")
         dlg.title:SetPoint("TOPLEFT", dlg, "TOPLEFT", mpad, titleY)
-        dlg.title:SetFontObject(UI.fonts.header)
+        dlg.title:SetFontObject(UI.fonts.ceremonial)   -- MORPHEUS ceremonial modal title (§3)
         dlg.body = fontString(dlg, "body")
         dlg.body:SetPoint("TOPLEFT", dlg, "TOPLEFT", mpad, bodyY)
         dlg.body:SetPoint("TOPRIGHT", dlg, "TOPRIGHT", -mpad, bodyY)
