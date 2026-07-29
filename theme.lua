@@ -57,6 +57,16 @@ local DEFAULT_TOKENS = {
     danger     = { 0.8118, 0.3647, 0.2902 }, -- #CF5D4A  destructive / off
     warn       = { 0.9600, 0.7600, 0.1800 }, -- #F5C22E  caution / below-normal (amber-gold)
 
+    -- Field Ledger tokens (NEW; every theme defines them so no consumer breaks on a
+    -- missing key). Legacy default keeps a GOLD seal — per BRAND_SPEC §2, gold survives
+    -- inside legacy themes. brand=theme selection color; bronze=metallic keyline;
+    -- idle=calm/owned neutral. These re-derive per theme (accent / accentDim / faint).
+    brand      = { 0.7882, 0.6353, 0.3020 }, -- = accent (gold seal in the legacy theme)
+    brandBright= { 0.8623, 0.7629, 0.5463 }, -- accent brightened toward white (urgency)
+    bronze     = { 0.5412, 0.4471, 0.2235 }, -- = accentDim (keyline/ornament ONLY)
+    bronzeDim  = { 0.3788, 0.3130, 0.1565 }, -- bronze * 0.7 (dim ornament)
+    idle       = { 0.4275, 0.3922, 0.3137 }, -- = faint (calm/owned/held state)
+
     -- control surfaces (contrast step-up): button/input/list/card fills & borders
     -- read as controls at in-game gamma — brighter than raised/borderLite, same warmth.
     control       = { 0.1961, 0.1686, 0.1255 }, -- #322B20  raised control fill (vs raised #262119)
@@ -99,7 +109,21 @@ UI.fonts = UI.fonts or {
     small  = newFont("DaseekiUIFontSmall"),
     accent = newFont("DaseekiUIFontAccent"),
     danger = newFont("DaseekiUIFontDanger"),
+    -- Field Ledger type roles (NEW; existing keys above are untouched). MORPHEUS is
+    -- ceremonial (>=16 floor), ARIALN for uppercase micro-labels and outlined numerals
+    -- (BRAND_SPEC §3). Faces ship with every WoW client (zero shipped fonts, §3).
+    ceremonial = newFont("DaseekiUIFontCeremonial"),
+    microLabel = newFont("DaseekiUIFontMicroLabel"),
+    numeral    = newFont("DaseekiUIFontNumeral"),
 }
+
+-- Ledger face + size constants (ceremonial size honors the >=16 floor; the runtime
+-- getter UI.GetCeremonialFont clamps requested sizes too).
+local FACE_CEREMONIAL = "Fonts\\MORPHEUS.TTF"
+local FACE_CONDENSED  = "Fonts\\ARIALN.TTF"
+local CEREMONIAL_SIZE = 16   -- >=16 floor (BRAND_SPEC §3/§7)
+local MICRO_SIZE      = 11
+local NUMERAL_SIZE    = 13
 
 local function applyFonts()
     local hs, bs, ss = UI.Token("headerSize"), UI.Token("bodySize"), UI.Token("smallSize")
@@ -122,6 +146,18 @@ local function applyFonts()
     UI.fonts.danger:SetFont(bf, bs, "")
     UI.fonts.danger:SetTextColor(UI.Color("danger"))
     UI.fonts.danger:SetJustifyH("LEFT")
+
+    -- Ledger roles (NEW). ceremonial: MORPHEUS >=16 in cream text; microLabel: ARIALN
+    -- muted; numeral: ARIALN + OUTLINE in cream (telemetry values/countdowns).
+    UI.fonts.ceremonial:SetFont(FACE_CEREMONIAL, math.max(16, CEREMONIAL_SIZE), "")
+    UI.fonts.ceremonial:SetTextColor(UI.Color("text"))
+    UI.fonts.ceremonial:SetJustifyH("LEFT")
+    UI.fonts.microLabel:SetFont(FACE_CONDENSED, MICRO_SIZE, "")
+    UI.fonts.microLabel:SetTextColor(UI.Color("muted"))
+    UI.fonts.microLabel:SetJustifyH("LEFT")
+    UI.fonts.numeral:SetFont(FACE_CONDENSED, NUMERAL_SIZE, "OUTLINE")
+    UI.fonts.numeral:SetTextColor(UI.Color("text"))
+    UI.fonts.numeral:SetJustifyH("LEFT")
 end
 
 -- ── ThemeChanged pub/sub ──────────────────────────────────────────────────────
@@ -184,6 +220,13 @@ UI.RegisterTheme("Neutral Slate", {
     danger     = { 0.8157, 0.4157, 0.3529 }, -- #D06A5A
     warn       = { 0.9098, 0.7020, 0.2431 }, -- #E8B33E  warm amber against cool slate
 
+    -- Ledger tokens (re-derived: brand=accent, bronze=accentDim, idle=faint).
+    brand      = { 0.4980, 0.6588, 0.7882 },
+    brandBright= { 0.6737, 0.7782, 0.8623 },
+    bronze     = { 0.3373, 0.4784, 0.5882 },
+    bronzeDim  = { 0.2361, 0.3349, 0.4117 },
+    idle       = { 0.3608, 0.4000, 0.4588 },
+
     -- control surfaces (contrast step-up) — brighter than raised/borderLite, same slate.
     control       = { 0.1843, 0.2078, 0.2471 }, -- #2F353F  (vs raised #262B33)
     controlBorder = { 0.3882, 0.4353, 0.5059 }, -- #636F81  (vs borderLite #4A5361)
@@ -209,6 +252,13 @@ UI.RegisterTheme("Orgrimmar Ember", {
     danger     = { 0.7686, 0.1922, 0.2745 }, -- #C43146  cooler crimson (hue ~351)
     warn       = { 0.9490, 0.7569, 0.3059 }, -- #F2C14E  golden-yellow, pushed off the ember accent (hue ~45)
 
+    -- Ledger tokens (re-derived: brand=accent, bronze=accentDim, idle=faint).
+    brand      = { 0.9098, 0.4784, 0.1333 },
+    brandBright= { 0.9414, 0.6610, 0.4366 },
+    bronze     = { 0.6588, 0.3529, 0.0941 },
+    bronzeDim  = { 0.4612, 0.2470, 0.0659 },
+    idle       = { 0.4863, 0.4078, 0.3216 },
+
     -- control surfaces (contrast step-up) — brighter than raised/borderLite, same umber.
     control       = { 0.2000, 0.1333, 0.1020 }, -- #33221A  (vs raised #2E201A)
     controlBorder = { 0.4196, 0.2902, 0.2039 }, -- #6B4A34  (vs borderLite #52392A)
@@ -231,6 +281,13 @@ UI.RegisterTheme("Stormwind Regalia", {
     ok         = { 0.3725, 0.7216, 0.4980 }, -- #5FB87F  positive green
     danger     = { 0.8157, 0.3412, 0.2980 }, -- #D0574C
     warn       = { 0.9412, 0.7686, 0.2353 }, -- #F0C43C  brighter yellow-gold, distinct from the gold accentDim
+
+    -- Ledger tokens (re-derived: brand=accent, bronze=accentDim[gold], idle=faint).
+    brand      = { 0.3059, 0.4824, 0.8392 },
+    brandBright= { 0.5488, 0.6636, 0.8955 },
+    bronze     = { 0.7882, 0.6353, 0.3020 },
+    bronzeDim  = { 0.5517, 0.4447, 0.2114 },
+    idle       = { 0.4118, 0.4627, 0.5725 },
 
     -- control surfaces (contrast step-up) — brighter than raised/borderLite, same navy.
     control       = { 0.1176, 0.1608, 0.2471 }, -- #1E293F  (vs raised #1B263F)
@@ -255,6 +312,13 @@ UI.RegisterTheme("Felwood", {
     danger     = { 0.8392, 0.2588, 0.1961 }, -- #D64232  red pops (hue ~6)
     warn       = { 0.8784, 0.7059, 0.1608 }, -- #E0B429  amber (hue ~45), clear of the fel-green accent and teal ok
 
+    -- Ledger tokens (re-derived: brand=accent, bronze=accentDim, idle=faint).
+    brand      = { 0.5255, 0.8314, 0.1686 },
+    brandBright= { 0.6916, 0.8904, 0.4596 },
+    bronze     = { 0.3529, 0.5804, 0.1255 },
+    bronzeDim  = { 0.2470, 0.4063, 0.0879 },
+    idle       = { 0.4118, 0.4627, 0.3961 },
+
     -- control surfaces (contrast step-up) — brighter than raised/borderLite, same fel tint.
     control       = { 0.1216, 0.1804, 0.1137 }, -- #1F2E1D  (vs raised #19271A)
     controlBorder = { 0.2784, 0.3765, 0.2353 }, -- #47603C  (vs borderLite #37503A)
@@ -278,14 +342,51 @@ UI.RegisterTheme("Winterspring Frost", {
     danger     = { 0.8431, 0.3569, 0.2902 }, -- #D75B4A  red pops on ice
     warn       = { 0.9216, 0.7608, 0.2980 }, -- #EBC24C  warm amber pops against the icy palette
 
+    -- Ledger tokens (re-derived: brand=accent, bronze=accentDim, idle=faint).
+    brand      = { 0.6902, 0.8471, 0.9412 },
+    brandBright= { 0.7986, 0.9006, 0.9618 },
+    bronze     = { 0.4353, 0.6510, 0.8000 },
+    bronzeDim  = { 0.3047, 0.4557, 0.5600 },
+    idle       = { 0.4078, 0.4745, 0.5529 },
+
     -- control surfaces (contrast step-up) — brighter than raised/borderLite, same frost slate.
     control       = { 0.1098, 0.1569, 0.2196 }, -- #1C2838  (vs raised #1A2436)
     controlBorder = { 0.2549, 0.3490, 0.4863 }, -- #41597C  (vs borderLite #35486A)
 })
 
+-- ── "Field Ledger" — the LOCKED default (BRAND_SPEC §2 hexes, verbatim) ────────
+-- Warm worn ink-on-parchment. accent=brand crimson (selection/urgency; rubricated
+-- headers read as a field-ledger's red headings); accentDim=bronzeDim (bronze keylines
+-- on buttons). Gold is retired here (survives only in the legacy themes above, §2).
+UI.RegisterTheme("Field Ledger", {
+    ground        = { 0.0902, 0.0784, 0.0667 }, -- #171411
+    panel         = { 0.1255, 0.1059, 0.0824 }, -- #201B15
+    raised        = { 0.1647, 0.1412, 0.1098 }, -- #2A241C
+    inset         = { 0.0706, 0.0627, 0.0471 }, -- #12100C  (flat, no grain)
+    border        = { 0.1961, 0.1647, 0.1255 }, -- #322A20
+    borderLite    = { 0.2706, 0.2275, 0.1686 }, -- #453A2B
+    control       = { 0.1725, 0.1451, 0.1098 }, -- #2C251C
+    controlBorder = { 0.2902, 0.2431, 0.1765 }, -- #4A3E2D  (cborder)
+    accent        = { 0.7529, 0.2824, 0.2353 }, -- = brand (crimson; selection/urgency)
+    accentDim     = { 0.4314, 0.3412, 0.1882 }, -- = bronzeDim (bronze keylines/borders)
+    brand         = { 0.7529, 0.2824, 0.2353 }, -- #C0483C  wax crimson
+    brandBright   = { 0.9098, 0.4196, 0.3529 }, -- #E86B5A  brighten target
+    bronze        = { 0.6118, 0.4784, 0.2706 }, -- #9C7A45  keylines/ornament ONLY
+    bronzeDim     = { 0.4314, 0.3412, 0.1882 }, -- #6E5730
+    text          = { 0.9255, 0.8902, 0.8157 }, -- #ECE3D0
+    muted         = { 0.6549, 0.6078, 0.5176 }, -- #A79B84  (>=4.5:1 on ground)
+    faint         = { 0.4314, 0.3882, 0.3137 }, -- #6E6350
+    idle          = { 0.3608, 0.3255, 0.2667 }, -- #5C5344  calm/owned state
+    ok            = { 0.4824, 0.6510, 0.3686 }, -- #7BA65E
+    warn          = { 0.8392, 0.6353, 0.2902 }, -- #D6A24A
+    danger        = { 0.8078, 0.2902, 0.2196 }, -- #CE4A38  (its own red, != brand)
+})
+
 -- Activate a provisional theme immediately so any widgets created before login
--- render correctly; the saved choice is re-applied once SavedVariables load.
-UI.SetTheme("Ashenvale Gold")
+-- render correctly; the saved choice is re-applied once SavedVariables load. Field
+-- Ledger is the LOCKED default for fresh installs; existing saved choices are honored
+-- by the ADDON_LOADED re-apply below and are never overwritten.
+UI.SetTheme("Field Ledger")
 
 -- Re-apply the persisted theme after DaseekiCoreDB is available. core.lua registers
 -- its ADDON_LOADED handler first (earlier file), so Core.db exists by the time this
@@ -297,7 +398,7 @@ loader:SetScript("OnEvent", function(self, _, name)
     if Core.db and Core.db.theme and UI.themes[Core.db.theme] then
         UI.SetTheme(Core.db.theme)
     else
-        UI.SetTheme(UI._activeName or "Ashenvale Gold")
+        UI.SetTheme(UI._activeName or "Field Ledger")
     end
     self:UnregisterEvent("ADDON_LOADED")
 end)

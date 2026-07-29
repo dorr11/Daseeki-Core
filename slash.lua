@@ -14,6 +14,9 @@ local function toggleDebug()
     local on = DaseekiUI and DaseekiUI.ToggleDebug and DaseekiUI.ToggleDebug()
     print("|cff00ccff[Daseeki Suite]|r Layout debug overlay " ..
         (on and "|cff82bf6bON|r" or "|cffcf5d4aOFF|r") .. ".")
+    -- Also dump the Phase-0 ledger kit: new primitives, active-theme tokens, and the
+    -- theme-token completeness self-test (BRAND_SPEC §9 debug requirement).
+    if DaseekiUI and DaseekiUI.PrintKitDebug then DaseekiUI.PrintKitDebug() end
 end
 
 SLASH_DASEEKISUITE1 = "/daseeki"

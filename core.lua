@@ -38,7 +38,9 @@ local DB_DEFAULTS = {
     lastAddon    = nil,   -- last selected top-level addon id
     minimapAngle = 220,
     minimapHide  = false,
-    theme        = "Ashenvale Gold",  -- active DaseekiUI theme name
+    theme        = "Field Ledger",    -- fresh-install default (BRAND_SPEC §2). Applied
+                                       -- ONLY when DaseekiCoreDB.theme is nil, so an
+                                       -- existing player's saved choice is never changed.
 }
 
 -- Per-character window geometry (owner decision: size persisted per character).

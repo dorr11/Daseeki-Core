@@ -12,6 +12,7 @@ theme.lua
 skin.lua
 widgets.lua
 daseekiui.lua
+ledgerkit.lua
 dialogs.lua
 hub.lua
 minimap.lua
