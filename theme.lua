@@ -239,15 +239,20 @@ UI.RegisterTheme("Field Ledger", {
 -- skin/frame.lua) carried into warn + the bronze keyline. danger is pushed to
 -- orange-red so destructive state never reads as the blood-red accent.
 -- Placed right after Field Ledger; it does NOT change the default.
+-- TRUE-UP (2026-07): the red border family was trued to the owner's ACTUAL 1.x SV
+-- skin values (extracted from DaseekiBagsSets) — his real slotBorderColor #350006 and
+-- window edge #6E001B are near-zero-green / slight-blue PURE crimson, not the browner
+-- reconstruction. border/borderLite/control/controlBorder dropped their green channel
+-- toward that character; accent/accentDim/brand stay (already correct blood-red).
 UI.RegisterTheme("Daseeki", {
     ground        = { 0.0471, 0.0392, 0.0392 }, -- #0C0A0A  near-black window ground (1.x {0,0,0} bg)
     panel         = { 0.0784, 0.0627, 0.0627 }, -- #141010  panels / content (stepped)
     raised        = { 0.1098, 0.0863, 0.0863 }, -- #1C1616  raised cards / hover
     inset         = { 0.0314, 0.0235, 0.0235 }, -- #080606  sunken inputs (below ground)
-    border        = { 0.2275, 0.1176, 0.1176 }, -- #3A1E1E  dark blood-brown hairline
-    borderLite    = { 0.3529, 0.1804, 0.1725 }, -- #5A2E2C  lighter blood-brown divider
-    control       = { 0.1255, 0.0941, 0.0941 }, -- #201818  raised control fill (vs raised #1C1616)
-    controlBorder = { 0.4314, 0.2275, 0.2118 }, -- #6E3A36  control border (vs borderLite #5A2E2C)
+    border        = { 0.2275, 0.0549, 0.0706 }, -- #3A0E12  pure dark crimson hairline (owner slotBorderColor #350006 character: near-0 green, slight blue)
+    borderLite    = { 0.3529, 0.0863, 0.1255 }, -- #5A1620  lighter pure-crimson divider
+    control       = { 0.1176, 0.0706, 0.0784 }, -- #1E1214  raised control fill — near-black, brown cast removed (vs raised #1C1616)
+    controlBorder = { 0.4314, 0.0549, 0.1098 }, -- #6E0E1C  control border (owner real window edge #6E001B family: R .431, near-0 green, slight blue)
     accent        = { 0.7098, 0.1216, 0.1412 }, -- = brand (blood-red; headers/selection/urgency)
     accentDim     = { 0.4941, 0.0784, 0.0902 }, -- #7E1417  dim blood-red
     brand         = { 0.7098, 0.1216, 0.1412 }, -- #B51F24  Daseeki blood-red
