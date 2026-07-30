@@ -230,6 +230,39 @@ UI.RegisterTheme("Field Ledger", {
     danger        = { 0.8078, 0.2902, 0.2196 }, -- #CE4A38  (its own red, != brand)
 })
 
+-- ── "Daseeki" — the owner's original suite look (dark mode + red, gold titles) ──
+-- Reconstructed from the Daseeki-Bags 1.x skin: near-black window ground (skin
+-- defaults.lua `color = {0,0,0,0.85}` and the button Bg `<Color r=0 g=0 b=0/>`),
+-- stepped up for panel/raised the way every DaseekiUI theme steps its grounds; a
+-- blood-red accent/border family for the owner's remembered "red accents"; and the
+-- warm title gold {1,0.82,0} that Bags' Title uses (GameFontNormalLeft, per
+-- skin/frame.lua) carried into warn + the bronze keyline. danger is pushed to
+-- orange-red so destructive state never reads as the blood-red accent.
+-- Placed right after Field Ledger; it does NOT change the default.
+UI.RegisterTheme("Daseeki", {
+    ground        = { 0.0471, 0.0392, 0.0392 }, -- #0C0A0A  near-black window ground (1.x {0,0,0} bg)
+    panel         = { 0.0784, 0.0627, 0.0627 }, -- #141010  panels / content (stepped)
+    raised        = { 0.1098, 0.0863, 0.0863 }, -- #1C1616  raised cards / hover
+    inset         = { 0.0314, 0.0235, 0.0235 }, -- #080606  sunken inputs (below ground)
+    border        = { 0.2275, 0.1176, 0.1176 }, -- #3A1E1E  dark blood-brown hairline
+    borderLite    = { 0.3529, 0.1804, 0.1725 }, -- #5A2E2C  lighter blood-brown divider
+    control       = { 0.1255, 0.0941, 0.0941 }, -- #201818  raised control fill (vs raised #1C1616)
+    controlBorder = { 0.4314, 0.2275, 0.2118 }, -- #6E3A36  control border (vs borderLite #5A2E2C)
+    accent        = { 0.7098, 0.1216, 0.1412 }, -- = brand (blood-red; headers/selection/urgency)
+    accentDim     = { 0.4941, 0.0784, 0.0902 }, -- #7E1417  dim blood-red
+    brand         = { 0.7098, 0.1216, 0.1412 }, -- #B51F24  Daseeki blood-red
+    brandBright   = { 0.8392, 0.2941, 0.3098 }, -- #D64B4F  accent brightened toward white (urgency)
+    bronze        = { 0.7804, 0.6078, 0.2314 }, -- #C79B3B  metallic gold keyline (1.x title gold, keyline weight)
+    bronzeDim     = { 0.5451, 0.4235, 0.1608 }, -- #8B6C29  bronze * 0.7 (dim ornament)
+    text          = { 0.9294, 0.9020, 0.8706 }, -- #EDE6DE  warm off-white primary text
+    muted         = { 0.6549, 0.6118, 0.5765 }, -- #A79C93  secondary text (>=4.5:1 on ground)
+    faint         = { 0.4314, 0.3843, 0.3529 }, -- #6E625A  faint text / disabled
+    idle          = { 0.2902, 0.2510, 0.2353 }, -- #4A403C  calm/owned neutral (dark warm grey)
+    ok            = { 0.3725, 0.7216, 0.4196 }, -- #5FB86B  positive green (readable on black, hue ~128)
+    warn          = { 1.0000, 0.8196, 0.0000 }, -- #FFD100  the 1.x title gold, as warn/highlight (hue ~49)
+    danger        = { 0.8784, 0.3333, 0.1569 }, -- #E05528  orange-red (hue ~15) — distinct from blood-red accent
+})
+
 -- ── Ship the legacy warm/cool themes (gold survives here only, §2) ─────────────
 -- "Ashenvale Gold" is the warm-dark placeholder from the mockups (== defaults).
 UI.RegisterTheme("Ashenvale Gold", nil)
