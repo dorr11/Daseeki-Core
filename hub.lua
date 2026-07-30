@@ -331,6 +331,29 @@ local function BuildAppearance(flow)
             "Standard is the shipped default; Strong is the ±6% ceiling.")
     end
 
+    -- Font picker (parallel to the theme picker): built-in faces + any LibSharedMedia
+    -- fonts from WeakAuras/Details/etc. Selecting re-skins the suite live.
+    local fontRow = appear:AddRow()
+    fontRow:Dropdown({
+        label   = "Font",
+        width   = 220,
+        choices = UI.FontNames(),
+        get     = function() return UI.GetFont() end,
+        set     = function(v) UI.SetFont(v) end,
+    })
+    appear:Hint("Typeface for suite text. Fonts from WeakAuras, Details, and other addons appear here automatically.")
+
+    local sizeRow = appear:AddRow()
+    sizeRow:Slider({
+        label  = "Text size",
+        width  = 220,
+        min    = 0.85, max = 1.3, step = 0.05,
+        get    = function() return UI.GetFontScale() end,
+        set    = function(v) UI.SetFontScale(v) end,
+        format = function(v) return string.format("%d%%", math.floor(v * 100 + 0.5)) end,
+    })
+    appear:Hint("Scales all suite text. 100% is the default.")
+
     appear:AddSeparator()
     appear:Hint("Active palette")
 

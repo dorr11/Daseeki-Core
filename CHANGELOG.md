@@ -1,6 +1,16 @@
 # Changelog
 
 ## Unreleased
+- Font picker added to Core > Appearance: choose from the 6 WoW built-in faces (Friz
+  Quadrata, Arial Narrow, Morpheus, Skurri, 2002, 2002 Bold) plus any LibSharedMedia
+  fonts registered by WeakAuras, Details, and other addons — merged at runtime, no
+  shipped font files. Selecting a face re-skins the whole suite live.
+- New Text size slider (85–130%, default 100%) scales all suite text at once.
+- Body text, micro-labels, and numerals now follow the picked face; the fresh-install
+  default is Friz Quadrata (fixes the previously-thin ARIALN labels/numerals). Ceremonial
+  headers stay MORPHEUS by brand law and never follow the picker.
+- New API: UI.SetFont / GetFont / FontNames / SetFontScale / GetFontScale / FontFile /
+  OnFontChanged / RegisterFont. Choices persist (DaseekiCoreDB.fontChoice / fontScale).
 - Field Ledger material now reads at game gamma (BRAND_SPEC §4/§5a): the grain substrate
   is regenerated as a parchment-white two-octave texture (±6% amplitude ceiling) so raising
   the veil lightens the ground gutters toward parchment instead of muddying them dark, and

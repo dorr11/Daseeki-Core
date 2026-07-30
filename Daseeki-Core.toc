@@ -3,6 +3,7 @@
 ## Notes: Shared options hub and UI toolkit for the Daseeki addon suite
 ## Author: Daseeki
 ## X-Curse-Project-ID: 1592402
+## X-Bundled-Fonts: Fira Sans Condensed Medium — SIL Open Font License 1.1 (see fonts/OFL.txt)
 ## SavedVariables: DaseekiCoreDB
 ## SavedVariablesPerCharacter: DaseekiCoreCharDB
 ## Version: 2.0.0

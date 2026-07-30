@@ -45,6 +45,8 @@ local DB_DEFAULTS = {
                                        -- subtle | standard | strong. ledgerkit.lua applies
                                        -- this on ADDON_LOADED and /daseekiui debug material
                                        -- cycles it live. Additive; existing saves default in.
+    fontChoice = "Fira Sans Condensed Medium",   -- fresh-install default face (vendored FiraSansCondensed-Medium.ttf, OFL 1.1). Owner's "too thin" fix. Applied ONLY when nil, so an existing saved choice is never changed.
+    fontScale  = 1.0,               -- global text-size multiplier (0.85–1.3), default 100%.
 }
 
 -- Per-character window geometry (owner decision: size persisted per character).

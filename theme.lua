@@ -120,44 +120,150 @@ UI.fonts = UI.fonts or {
 -- Ledger face + size constants (ceremonial size honors the >=16 floor; the runtime
 -- getter UI.GetCeremonialFont clamps requested sizes too).
 local FACE_CEREMONIAL = "Fonts\\MORPHEUS.TTF"
-local FACE_CONDENSED  = "Fonts\\ARIALN.TTF"
+local FACE_CONDENSED  = "Fonts\\ARIALN.TTF"   -- (no longer used by applyFonts; microLabel/numeral follow the picked face now)
 local CEREMONIAL_SIZE = 16   -- >=16 floor (BRAND_SPEC §3/§7)
 local MICRO_SIZE      = 11
 local NUMERAL_SIZE    = 13
 
-local function applyFonts()
-    local hs, bs, ss = UI.Token("headerSize"), UI.Token("bodySize"), UI.Token("smallSize")
-    local hf, bf     = UI.Token("headerFace"), UI.Token("bodyFace")
-    UI.fonts.header:SetFont(hf, hs, "")
-    UI.fonts.header:SetTextColor(UI.Color("accent"))
-    UI.fonts.header:SetJustifyH("LEFT")
-    UI.fonts.body:SetFont(bf, bs, "")
-    UI.fonts.body:SetTextColor(UI.Color("text"))
-    UI.fonts.body:SetJustifyH("LEFT")
-    UI.fonts.muted:SetFont(bf, bs, "")
-    UI.fonts.muted:SetTextColor(UI.Color("muted"))
-    UI.fonts.muted:SetJustifyH("LEFT")
-    UI.fonts.small:SetFont(bf, ss, "")
-    UI.fonts.small:SetTextColor(UI.Color("muted"))
-    UI.fonts.small:SetJustifyH("LEFT")
-    UI.fonts.accent:SetFont(bf, bs, "")
-    UI.fonts.accent:SetTextColor(UI.Color("accent"))
-    UI.fonts.accent:SetJustifyH("LEFT")
-    UI.fonts.danger:SetFont(bf, bs, "")
-    UI.fonts.danger:SetTextColor(UI.Color("danger"))
-    UI.fonts.danger:SetJustifyH("LEFT")
+-- Forward decls so the font-picker block below (mergeLSM callback, SetFont/SetFontScale)
+-- and applyFonts/fireFontChanged can reference each other as file-LOCAL upvalues. They
+-- are ASSIGNED (not re-declared) further down; keeping them local avoids leaking globals.
+local applyFonts        -- forward decl (defined below)
+local fireFontChanged   -- forward decl (defined below)
 
-    -- Ledger roles (NEW). ceremonial: MORPHEUS >=16 in cream text; microLabel: ARIALN
-    -- muted; numeral: ARIALN + OUTLINE in cream (telemetry values/countdowns).
-    UI.fonts.ceremonial:SetFont(FACE_CEREMONIAL, math.max(16, CEREMONIAL_SIZE), "")
-    UI.fonts.ceremonial:SetTextColor(UI.Color("text"))
-    UI.fonts.ceremonial:SetJustifyH("LEFT")
-    UI.fonts.microLabel:SetFont(FACE_CONDENSED, MICRO_SIZE, "")
-    UI.fonts.microLabel:SetTextColor(UI.Color("muted"))
-    UI.fonts.microLabel:SetJustifyH("LEFT")
-    UI.fonts.numeral:SetFont(FACE_CONDENSED, NUMERAL_SIZE, "OUTLINE")
-    UI.fonts.numeral:SetTextColor(UI.Color("text"))
-    UI.fonts.numeral:SetJustifyH("LEFT")
+-- ── Font picker: registry + LibSharedMedia merge + resolver ───────────────────
+-- The picked FACE governs every body-family font object (body/muted/small/accent/
+-- danger/header + the ledger microLabel/numeral). Ceremonial (MORPHEUS) is BRAND-
+-- LOCKED and never follows the picker. Sizes scale by fontScale (0.85–1.3). Fonts
+-- are DATA like themes: the 6 client built-ins are always present (no shipping);
+-- LibSharedMedia fonts (from WeakAuras/Details/etc.) merge in license-cleanly at
+-- runtime — we only REFERENCE them, the registering addon ships the file.
+UI.fontRegistry = UI.fontRegistry or {}    -- name -> path (built-ins + merged LSM)
+UI._fontChoice  = UI._fontChoice or "Fira Sans Condensed Medium"  -- fresh-install default (vendored, always present); Friz Quadrata remains the hard face fallback in UI.FontFile
+UI._fontScale   = UI._fontScale or 1.0
+UI._fontSkins   = UI._fontSkins or {}      -- OnFontChanged callbacks
+
+function UI.RegisterFont(name, path)
+    if type(name) ~= "string" or name == "" then return end
+    if type(path) ~= "string" or path == "" then return end
+    if UI.fontRegistry[name] == nil then UI.fontRegistry[name] = path end  -- built-ins win over later LSM dupes
+end
+
+-- The 6 WoW client built-in faces (guaranteed present on every Classic Era client).
+UI.RegisterFont("Fira Sans Condensed Medium", "Interface\\AddOns\\Daseeki-Core\\fonts\\FiraSansCondensed-Medium.ttf")  -- SHIPPED default (vendored, OFL 1.1; see fonts/OFL.txt). Same name as WeakAuras' LSM entry so the merge dedupes to this shipped copy.
+UI.RegisterFont("Friz Quadrata", "Fonts\\FRIZQT__.TTF")
+UI.RegisterFont("Arial Narrow",  "Fonts\\ARIALN.TTF")
+UI.RegisterFont("Morpheus",      "Fonts\\MORPHEUS.TTF")
+UI.RegisterFont("Skurri",        "Fonts\\SKURRI.TTF")
+UI.RegisterFont("2002",          "Fonts\\2002.TTF")
+UI.RegisterFont("2002 Bold",     "Fonts\\2002B.TTF")
+
+-- Detect-and-use LibSharedMedia (NEVER a hard dep). Merge its registered "font"
+-- media, deduped by name (built-ins already seeded, so they win). Also hook LSM's
+-- register callback ONCE so fonts registered after us still show up + re-skin.
+local function mergeLSM()
+    local LSM = _G.LibStub and _G.LibStub("LibSharedMedia-3.0", true)
+    if not LSM then return end
+    local ht = LSM.HashTable and LSM:HashTable("font")
+    if type(ht) == "table" then
+        for name, path in pairs(ht) do
+            if type(name) == "string" and type(path) == "string" and UI.fontRegistry[name] == nil then
+                UI.fontRegistry[name] = path
+            end
+        end
+    end
+    if not UI._lsmHooked and LSM.RegisterCallback then
+        UI._lsmHooked = true
+        -- LSM callbacks pass (event, mediatype, key); we only care that font media changed.
+        local function onLSM()
+            local h = LSM.HashTable and LSM:HashTable("font")
+            if type(h) == "table" then
+                for n, p in pairs(h) do
+                    if type(n) == "string" and type(p) == "string" and UI.fontRegistry[n] == nil then
+                        UI.fontRegistry[n] = p
+                    end
+                end
+            end
+            applyFonts(); fireFontChanged()   -- a late-registered current font now resolves
+        end
+        pcall(function() LSM.RegisterCallback(UI, "LibSharedMedia_Registered", onLSM) end)
+        pcall(function() LSM.RegisterCallback(UI, "LibSharedMedia_SetGlobal",  onLSM) end)
+    end
+end
+UI._mergeLSM = mergeLSM   -- exposed for the loader/PLAYER_LOGIN refresh
+
+-- Resolver every consumer uses. Returns the FILE PATH for the current choice,
+-- falling back to Friz Quadrata so a face is ALWAYS valid.
+function UI.FontFile()
+    local choice = (Core.db and Core.db.fontChoice) or UI._fontChoice or "Fira Sans Condensed Medium"
+    local p = UI.fontRegistry[choice]
+    if not p then
+        local LSM = _G.LibStub and _G.LibStub("LibSharedMedia-3.0", true)
+        if LSM and LSM.Fetch then p = LSM:Fetch("font", choice, true) end   -- silent fetch
+    end
+    return p or "Fonts\\FRIZQT__.TTF"
+end
+
+function UI.GetFont()      return (Core.db and Core.db.fontChoice) or UI._fontChoice or "Fira Sans Condensed Medium" end
+function UI.GetFontScale() return (Core.db and Core.db.fontScale)  or UI._fontScale  or 1.0 end
+
+function UI.FontNames()
+    mergeLSM()   -- pull in whatever LSM has NOW (dropdown is built post-login)
+    local names = {}
+    for name in pairs(UI.fontRegistry) do names[#names + 1] = name end
+    table.sort(names, function(a, b) return a:lower() < b:lower() end)
+    return names
+end
+
+function UI.OnFontChanged(fn) if type(fn) == "function" then UI._fontSkins[#UI._fontSkins + 1] = fn end end
+fireFontChanged = function() for _, fn in ipairs(UI._fontSkins) do pcall(fn) end end
+
+function UI.SetFont(name)
+    if type(name) ~= "string" or name == "" then return end
+    UI._fontChoice = name
+    if Core.db then Core.db.fontChoice = name end
+    applyFonts(); fireFontChanged()
+end
+
+function UI.SetFontScale(n)
+    n = tonumber(n) or 1.0
+    if n < 0.85 then n = 0.85 elseif n > 1.3 then n = 1.3 end
+    UI._fontScale = n
+    if Core.db then Core.db.fontScale = n end
+    applyFonts(); fireFontChanged()
+end
+
+function applyFonts()
+    local scale = UI.GetFontScale()
+    local function sz(base) return math.max(1, math.floor((base or 12) * scale + 0.5)) end
+    local face = UI.FontFile()
+    local hs, bs, ss = UI.Token("headerSize"), UI.Token("bodySize"), UI.Token("smallSize")
+
+    -- Body-family roles all follow the PICKED face + scaled size (their color/justify
+    -- intent is unchanged). header stays a titling role by size+color, not a distinct face.
+    UI.fonts.header:SetFont(face, sz(hs), "")
+    UI.fonts.header:SetTextColor(UI.Color("accent"));  UI.fonts.header:SetJustifyH("LEFT")
+    UI.fonts.body:SetFont(face, sz(bs), "")
+    UI.fonts.body:SetTextColor(UI.Color("text"));      UI.fonts.body:SetJustifyH("LEFT")
+    UI.fonts.muted:SetFont(face, sz(bs), "")
+    UI.fonts.muted:SetTextColor(UI.Color("muted"));    UI.fonts.muted:SetJustifyH("LEFT")
+    UI.fonts.small:SetFont(face, sz(ss), "")
+    UI.fonts.small:SetTextColor(UI.Color("muted"));    UI.fonts.small:SetJustifyH("LEFT")
+    UI.fonts.accent:SetFont(face, sz(bs), "")
+    UI.fonts.accent:SetTextColor(UI.Color("accent"));  UI.fonts.accent:SetJustifyH("LEFT")
+    UI.fonts.danger:SetFont(face, sz(bs), "")
+    UI.fonts.danger:SetTextColor(UI.Color("danger"));  UI.fonts.danger:SetJustifyH("LEFT")
+
+    -- Ceremonial: MORPHEUS is BRAND-LOCKED (never the picked face); size scales but
+    -- honors the >=16 floor (BRAND_SPEC §3/§7).
+    UI.fonts.ceremonial:SetFont(FACE_CEREMONIAL, math.max(16, sz(CEREMONIAL_SIZE)), "")
+    UI.fonts.ceremonial:SetTextColor(UI.Color("text"));   UI.fonts.ceremonial:SetJustifyH("LEFT")
+    -- microLabel + numeral: previously hardcoded ARIALN (the owner's "too thin" text).
+    -- Now they follow the PICKED face so the picker + default Fira Sans Condensed Medium (vendored) fix them.
+    UI.fonts.microLabel:SetFont(face, sz(MICRO_SIZE), "")
+    UI.fonts.microLabel:SetTextColor(UI.Color("muted"));  UI.fonts.microLabel:SetJustifyH("LEFT")
+    UI.fonts.numeral:SetFont(face, sz(NUMERAL_SIZE), "OUTLINE")
+    UI.fonts.numeral:SetTextColor(UI.Color("text"));      UI.fonts.numeral:SetJustifyH("LEFT")
 end
 
 -- ── ThemeChanged pub/sub ──────────────────────────────────────────────────────
@@ -434,12 +540,25 @@ UI.SetTheme("Field Ledger")
 -- one runs for our addon.
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("ADDON_LOADED")
-loader:SetScript("OnEvent", function(self, _, name)
-    if name ~= ADDON then return end
-    if Core.db and Core.db.theme and UI.themes[Core.db.theme] then
-        UI.SetTheme(Core.db.theme)
-    else
-        UI.SetTheme(UI._activeName or "Field Ledger")
+loader:RegisterEvent("PLAYER_LOGIN")
+loader:SetScript("OnEvent", function(self, event, name)
+    if event == "ADDON_LOADED" then
+        if name ~= ADDON then return end
+        if Core.db and Core.db.theme and UI.themes[Core.db.theme] then
+            UI.SetTheme(Core.db.theme)
+        else
+            UI.SetTheme(UI._activeName or "Field Ledger")
+        end
+        -- SetTheme re-applied fonts from the persisted Core.db; merge LSM + re-fire so
+        -- any consumer that skinned pre-login re-reads the now-correct face.
+        if UI._mergeLSM then UI._mergeLSM() end
+        fireFontChanged()
+        self:UnregisterEvent("ADDON_LOADED")
+    elseif event == "PLAYER_LOGIN" then
+        -- LSM fonts from addons that load AFTER us (WeakAuras/Details) are present by
+        -- login; merge them so a persisted LSM face resolves, then re-skin.
+        if UI._mergeLSM then UI._mergeLSM() end
+        applyFonts(); fireFontChanged()
+        self:UnregisterEvent("PLAYER_LOGIN")
     end
-    self:UnregisterEvent("ADDON_LOADED")
 end)
