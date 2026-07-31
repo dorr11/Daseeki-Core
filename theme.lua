@@ -192,16 +192,184 @@ local function mergeLSM()
 end
 UI._mergeLSM = mergeLSM   -- exposed for the loader/PLAYER_LOGIN refresh
 
--- Resolver every consumer uses. Returns the FILE PATH for the current choice,
--- falling back to Friz Quadrata so a face is ALWAYS valid.
-function UI.FontFile()
+-- ── Font LOAD verification (the unreadable-file guard) ────────────────────────
+-- The WoW client can only read font FILES that were on disk when the process
+-- STARTED. A font shipped or installed during a session resolves to a perfectly
+-- valid PATH, but the client cannot load the file — and every FontString set to
+-- that face draws NOTHING. The UI is not broken, it is INVISIBLE. A /reload does
+-- not help; only a full game restart does.
+--
+-- This bit the owner the day the vendored fonts/FiraSansCondensed-Medium.ttf
+-- became the default face: on a reload-only session the Channel input looked
+-- untypable and the Copy-bundle dialog looked blank — both were simply drawing
+-- transparent text.
+--
+-- Guard: no face is committed until it has been PROVEN to render, on a hidden
+-- probe FontString. Detection is layered so it holds whatever the client reports
+-- (semantics verified against wow-api-catalog build 1.15.9.68808):
+--
+--   1. SetFont returns success:bool  — functions.txt:3917 and :3919
+--      ("SetFont -- (fontFile, fontHeight, optional flags) -> success:bool").
+--      An explicit `false` is proof of failure. NOTE a fourth, same-shaped
+--      overload at :3918 declares NO return at all, so `nil` means "this widget
+--      type doesn't report" — it must be read as UNKNOWN, never as failed.
+--   2. GetFont's path return is nullable — functions.txt:3146 declares
+--      "opt fontFile:FontAsset" (the other overloads' paths are not optional).
+--      A nil/empty readback, or a readback still showing the calibration face,
+--      means the SetFont silently did not take.
+--   3. Differential width. The probe is first calibrated with Friz Quadrata on
+--      the SAME text. If the control measures a width and the candidate measures
+--      ZERO, the candidate draws nothing — which is the incident itself,
+--      whatever the API claimed. Self-calibrating: if the control also measures
+--      0 (no layout available yet) the width test is skipped rather than trusted.
+--
+-- The catalog carries signatures only — it has no prose, so the "font files need
+-- a full client restart" behavior above is NOT sourced from it; it is the
+-- observed live incident. Accordingly the guard rejects a face only on POSITIVE
+-- evidence of failure; every ambiguous outcome passes the face through.
+local FACE_FALLBACK = "Fonts\\FRIZQT__.TTF"   -- always present since client launch
+local PROBE_TEXT    = "Daseeki font probe 0123"
+local PROBE_SIZE    = 12
+
+UI._faceProbe     = UI._faceProbe     or {}   -- path -> true/false (session-only cache)
+UI._faceFallback  = UI._faceFallback  or nil  -- name of the face we fell back FROM
+UI._fallbackEpoch = UI._fallbackEpoch or 0    -- bumped whenever fallback engages/lifts
+UI._fallbackTold  = UI._fallbackTold  or {}   -- name -> true (chat notice printed once)
+
+local function samePath(a, b)
+    if type(a) ~= "string" or type(b) ~= "string" then return false end
+    return (a:lower():gsub("\\", "/")) == (b:lower():gsub("\\", "/"))
+end
+
+-- One hidden, never-shown FontString used for every probe. Created lazily so the
+-- guard is inert in any environment without a frame surface.
+local probeString
+local function ensureProbe()
+    if probeString then return probeString end
+    if type(_G.CreateFrame) ~= "function" then return nil end
+    local ok, f = pcall(_G.CreateFrame, "Frame", nil, _G.UIParent)
+    if not ok or type(f) ~= "table" or type(f.CreateFontString) ~= "function" then return nil end
+    pcall(f.Hide, f)
+    local ok2, fs = pcall(f.CreateFontString, f, nil, "ARTWORK")
+    if not ok2 or type(fs) ~= "table" then return nil end
+    probeString = fs
+    return fs
+end
+
+-- true = this face verifiably renders; false = it would draw invisible text.
+-- Never raises: a probe that cannot run reports true (ambiguity is not failure).
+local function faceRenders(path)
+    if type(path) ~= "string" or path == "" then return false end
+    local cached = UI._faceProbe[path]
+    if cached ~= nil then return cached end
+
+    local fs = ensureProbe()
+    if not fs then return true end   -- no probe surface: assume good, do not cache
+
+    local result = true
+    local ran = pcall(function()
+        fs:SetText(PROBE_TEXT)
+
+        -- Calibrate on a face the client has had since launch.
+        fs:SetFont(FACE_FALLBACK, PROBE_SIZE, "")
+        local controlW = tonumber(fs.GetStringWidth and fs:GetStringWidth()) or 0
+
+        -- (1) explicit success boolean
+        local setOk = fs:SetFont(path, PROBE_SIZE, "")
+        if setOk == false then result = false return end
+
+        -- (2) readback
+        local got = fs.GetFont and fs:GetFont()
+        if got == nil or got == "" then result = false return end
+        if not samePath(path, FACE_FALLBACK) and samePath(got, FACE_FALLBACK) then
+            result = false return   -- still on the calibration face: the set didn't take
+        end
+
+        -- (3) differential width (only meaningful when the control measured)
+        local candW = tonumber(fs.GetStringWidth and fs:GetStringWidth()) or 0
+        if controlW > 0 and candW <= 0 then result = false return end
+    end)
+    if not ran then result = true end   -- probe machinery blew up: don't punish the face
+
+    UI._faceProbe[path] = result
+    return result
+end
+
+-- The chat notice. Deliberately plain text — no color escapes, no icons — so the
+-- owner can copy the line straight out of chat into a bug report.
+local pendingNotice
+local function emitNotice(msg)
+    local out = _G.DEFAULT_CHAT_FRAME
+    if out and type(out.AddMessage) == "function" then
+        pcall(out.AddMessage, out, msg)
+    elseif type(_G.print) == "function" then
+        pcall(_G.print, msg)
+    else
+        pendingNotice = msg   -- no chat surface yet; flushed at PLAYER_LOGIN
+    end
+end
+local function flushNotice()
+    if pendingNotice then
+        local m = pendingNotice
+        pendingNotice = nil
+        emitNotice(m)
+    end
+end
+
+-- Raw resolve: the path the CHOICE maps to, with NO load verification. Used by
+-- the guard itself and by diagnostics that need to see the user's actual pick.
+function UI.FontFileRaw()
     local choice = (Core.db and Core.db.fontChoice) or UI._fontChoice or "Fira Sans Condensed Medium"
     local p = UI.fontRegistry[choice]
     if not p then
         local LSM = _G.LibStub and _G.LibStub("LibSharedMedia-3.0", true)
         if LSM and LSM.Fetch then p = LSM:Fetch("font", choice, true) end   -- silent fetch
     end
-    return p or "Fonts\\FRIZQT__.TTF"
+    return p or FACE_FALLBACK
+end
+
+-- Resolver every consumer uses. Returns the FILE PATH for the current choice —
+-- but only after that face has been PROVEN to render. A face the client cannot
+-- load falls the WHOLE session back to Friz Quadrata (one chat notice, printed
+-- once per face) so the suite stays readable instead of going invisible.
+--
+-- The user's SAVED fontChoice is never touched: this is a session-scoped render
+-- substitution, so the next proper game restart silently honours their pick.
+function UI.FontFile()
+    local choice = UI.GetFont()
+    local path   = UI.FontFileRaw()
+
+    if samePath(path, FACE_FALLBACK) or faceRenders(path) then
+        if UI._faceFallback ~= nil then                 -- a working face was picked: lift
+            UI._faceFallback  = nil
+            UI._fallbackEpoch = UI._fallbackEpoch + 1
+        end
+        return path
+    end
+
+    if UI._faceFallback ~= choice then
+        UI._faceFallback  = choice
+        UI._fallbackEpoch = UI._fallbackEpoch + 1
+    end
+    if not UI._fallbackTold[choice] then
+        UI._fallbackTold[choice] = true
+        emitNotice("Daseeki: the font '" .. tostring(choice) .. "' could not be loaded "
+            .. "(a full game restart is needed after installing new fonts). "
+            .. "Using Friz Quadrata for this session.")
+    end
+    return FACE_FALLBACK
+end
+
+-- true + the failed face name when the session is running on the fallback face.
+function UI.IsFaceFallback() return UI._faceFallback ~= nil, UI._faceFallback end
+
+-- Startup self-check: probe the SAVED face on the hidden FontString once, BEFORE
+-- applyFonts commits it to the shared font objects. Failure engages the fallback
+-- and prints the notice here, so the very first paint is already readable rather
+-- than invisible-then-corrected. Idempotent (the probe result is cached).
+function UI.SelfCheckFont()
+    UI.FontFile()
+    return UI.IsFaceFallback()
 end
 
 function UI.GetFont()      return (Core.db and Core.db.fontChoice) or UI._fontChoice or "Fira Sans Condensed Medium" end
@@ -298,8 +466,15 @@ function UI.SetTheme(name)
     UI._active     = tokens
     UI._activeName = name
     if Core.db then Core.db.theme = name end
+    -- A theme change re-applies fonts, which is a place the load guard can first
+    -- engage (or lift) the face fallback. SetTheme normally fires only the THEME
+    -- callbacks, so watch the fallback epoch and fire the FONT callbacks too when
+    -- the face actually changed under us — otherwise consumers that cache a face
+    -- (Nexus SizedFont and friends) would keep drawing with the dead one.
+    local epoch = UI._fallbackEpoch
     applyFonts()
     fireThemeChanged()
+    if UI._fallbackEpoch ~= epoch then fireFontChanged() end
 end
 
 function UI.GetThemeName()  return UI._activeName end
@@ -544,6 +719,10 @@ loader:RegisterEvent("PLAYER_LOGIN")
 loader:SetScript("OnEvent", function(self, event, name)
     if event == "ADDON_LOADED" then
         if name ~= ADDON then return end
+        -- Startup self-check FIRST: the saved face is probed on the hidden
+        -- FontString before SetTheme -> applyFonts commits it anywhere, so a face
+        -- the client cannot read never reaches a visible FontString.
+        UI.SelfCheckFont()
         if Core.db and Core.db.theme and UI.themes[Core.db.theme] then
             UI.SetTheme(Core.db.theme)
         else
@@ -558,7 +737,9 @@ loader:SetScript("OnEvent", function(self, event, name)
         -- LSM fonts from addons that load AFTER us (WeakAuras/Details) are present by
         -- login; merge them so a persisted LSM face resolves, then re-skin.
         if UI._mergeLSM then UI._mergeLSM() end
+        UI.SelfCheckFont()          -- a late-resolving LSM face gets the same guard
         applyFonts(); fireFontChanged()
+        flushNotice()               -- chat is definitely up now; deliver any queued notice
         self:UnregisterEvent("PLAYER_LOGIN")
     end
 end)

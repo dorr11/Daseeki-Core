@@ -4,5 +4,6 @@ ignore:
   - README.md
   - CHANGELOG.md
   - .github
+  - harness
 
 manual-changelog: CHANGELOG.md

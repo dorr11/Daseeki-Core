@@ -1,6 +1,28 @@
 # Changelog
 
 ## Unreleased
+- Fixed: a font the game client cannot read no longer blanks the UI. The client can
+  only load font FILES that were on disk when it STARTED — a font shipped or installed
+  during a session resolves to a valid path but loads as nothing, so every FontString
+  on that face draws INVISIBLE. A /reload does not fix it; only a full game restart
+  does. This is what made the Channel input look untypable and the Copy-bundle dialog
+  look blank the day the bundled Fira Sans Condensed became the default face.
+  Core now PROVES a face renders (hidden probe FontString: SetFont's success return,
+  the GetFont readback, and a zero-width differential against Friz Quadrata) before
+  committing it — at login, on every apply, and when a face is chosen from the picker.
+  A face that fails takes the whole session back to Friz Quadrata with one plain chat
+  line explaining that a full game restart is needed. Your saved font choice is NOT
+  changed, so the next proper restart silently gives you the font you picked. Font
+  consumers across the suite are re-notified (OnFontChanged) so everything re-skins to
+  the fallback together.
+- New API: UI.IsFaceFallback() (is this session on the fallback face, and which face
+  failed) and UI.FontFileRaw() (the picked path, unverified — for diagnostics).
+  UI.FontFile() is unchanged for callers but now returns only a verified face.
+- New headless self-test harness (`harness/run-selftests.cmd`, real Lua 5.1, mirrors
+  the Daseeki-Nexus pattern): parse-gates every .lua the .toc lists, covers the font
+  load guard (all four ways a client can report an unreadable face, the picker path,
+  fallback lift, notice-once, saved-choice preservation, and no false fallbacks), and
+  firewalls the globals core.lua + theme.lua are allowed to publish.
 - Font picker added to Core > Appearance: choose from the 6 WoW built-in faces (Friz
   Quadrata, Arial Narrow, Morpheus, Skurri, 2002, 2002 Bold) plus any LibSharedMedia
   fonts registered by WeakAuras, Details, and other addons — merged at runtime, no
