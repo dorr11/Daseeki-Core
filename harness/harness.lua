@@ -19,6 +19,10 @@
 --                         alphabetical by display name at RENDER time (so a late
 --                         registration slots mid-list), sections under the active
 --                         entry only.
+--   5) HUB WORDMARK    -- the titlebar "Daseeki Suite" wordmark asks the theme for
+--                         the ACCENT token through UI.Skin (no baked |cff escape),
+--                         the version suffix stays muted metadata, and the
+--                         ThemeChanged ordering that keeps that paint on top holds.
 --
 -- Each case executes core.lua + theme.lua in a FRESH global environment
 -- (setfenv), so the guard's session caches (UI._faceProbe / _fallbackTold /
@@ -203,7 +207,11 @@ local function buildEnv(fontModes, denyProbe, metaVersion)
       if not st.font or st.zero then return 0 end
       return #(st.text or "") * 6
     end
-    function o:SetTextColor() end
+    -- Colour is RECORDED, not swallowed: gate 5 asserts the shared ceremonial font
+    -- object is already re-tinted by the time ThemeChanged subscribers run, which is
+    -- what lets a per-FontString accent paint (the hub wordmark) land last and stick.
+    function o:SetTextColor(r, g, b, a) st.r, st.g, st.b, st.a = r, g, b, a end
+    function o:GetTextColor() return st.r, st.g, st.b, st.a end
     function o:SetJustifyH() end
     function o:SetShadowColor() end
     function o:SetShadowOffset() end
@@ -791,6 +799,105 @@ do
   -- A single-section addon stays collapsed even when active (no pointless child row).
   eq(indexOf(Core:GetNavPlan("nexus"), function(e) return e.kind == "section" end), nil,
      "a single-section addon does not expand")
+end
+
+----------------------------------------------------------------------
+-- 5) HUB WORDMARK TINT
+--
+-- Owner directive (2026-08-03): the settings-hub "Daseeki Suite" wordmark reads
+-- red, not cream — the same suite accent the Nexus NEXUS wordmark and the Raid
+-- Prep title already wear. Two halves to that contract, pinned separately:
+--
+--   a) AUTHORING. hub.lua builds real frames, so it cannot execute under these
+--      stubs; its wordmark lockup is pinned against SOURCE instead. That is the
+--      right altitude anyway — the regressions this guards are authoring slips
+--      (baking a |cff hex escape like the pre-fix Nexus wordmark did, dropping the
+--      UI.Skin wrapper so the colour dies at the next theme change, or quietly
+--      accenting the version suffix too), not runtime state.
+--   b) ORDERING. The paint only survives because UI.SetTheme runs applyFonts()
+--      BEFORE fireThemeChanged(): the shared ceremonial FontObject goes back to
+--      cream first, then subscribers repaint. Flip that order and the wordmark
+--      silently reverts to cream on every theme switch, with hub.lua unchanged --
+--      which is exactly why this half is pinned on the live theme engine.
+----------------------------------------------------------------------
+print("\n== GATE 5: hub wordmark tint ==")
+
+caseName = "the wordmark asks the theme for the accent token"
+print("\n-- " .. caseName)
+do
+  local fh = io.open(P("hub.lua"), "r")
+  local src = fh and fh:read("*a") or ""
+  if fh then fh:close() end
+  ok(#src > 0, "hub.lua is readable")
+
+  -- The titlebar lockup: wordmark FontString through to the breadcrumb that closes it.
+  local s = src:find("local title = titleBar:CreateFontString", 1, true)
+  local e = s and src:find("-- Breadcrumb", s, true)
+  ok(s ~= nil, "the titlebar wordmark FontString is still where the lockup starts")
+  ok(e ~= nil, "the breadcrumb still closes the lockup (block bounds resolved)")
+  local block = (s and e) and src:sub(s, e) or ""
+
+  ok(block:find('SetText("Daseeki Suite")', 1, true) ~= nil,
+     "the wordmark still reads \"Daseeki Suite\"")
+  ok(block:find("title:SetFontObject(UI.fonts.ceremonial)", 1, true) ~= nil,
+     "the MORPHEUS ceremonial FACE is untouched -- colour only")
+  ok(block:find("UI.Skin(title,", 1, true) ~= nil,
+     "the tint is registered through UI.Skin, so it re-runs on ThemeChanged")
+  ok(block:find('SetTextColor(UI.Color("accent"))', 1, true) ~= nil,
+     "and it reads the ACCENT token rather than a fixed colour")
+  ok(block:find("|c", 1, true) == nil,
+     "no baked |cff hex escape anywhere in the lockup")
+  ok(block:find("SetTextColor%(%s*[%d%.]") == nil,
+     "no literal rgb triple handed to SetTextColor")
+
+  -- The version suffix is METADATA and stays muted: UI.fonts.small is tinted from
+  -- `muted`, the same register as the breadcrumb on the far end of the same bar.
+  ok(block:find("verFS:SetFontObject(UI.fonts.small)", 1, true) ~= nil,
+     "the version suffix stays on the muted small role")
+  local accents = select(2, block:gsub('UI%.Color%("accent"%)', ""))
+  eq(accents, 1, "exactly ONE accent paint in the lockup (the wordmark, not the version)")
+end
+
+caseName = "the accent paint survives a theme change"
+print("\n-- " .. caseName)
+do
+  local env, Core, UI = loadCore(nil)
+  login(env)
+
+  -- The fix is only visible if accent and text actually differ -- a theme whose
+  -- accent WAS the body cream would make the whole directive a no-op.
+  local ar, ag, ab = UI.Color("accent")
+  local tr, tg, tb = UI.Color("text")
+  ok(not (ar == tr and ag == tg and ab == tb),
+     "accent is a distinct colour from body text in the shipped theme")
+  ok(ar > ag and ar > ab, "and it is red-dominant -- the suite crimson the owner asked for")
+
+  -- Stand in for the hub's UI.Skin subscriber: repaint on every ThemeChanged, and
+  -- record what the shared ceremonial object looked like at that moment.
+  local ceremonialAtCallback, painted = nil, nil
+  UI.OnThemeChanged(function()
+    ceremonialAtCallback = { UI.fonts.ceremonial:GetTextColor() }
+    painted = { UI.Color("accent") }
+  end)
+
+  UI.SetTheme("Daseeki")
+  ok(painted ~= nil, "the ThemeChanged subscriber ran on SetTheme")
+  local cr, cg, cb = UI.fonts.ceremonial:GetTextColor()
+  local wr, wg, wb = UI.Color("text")
+  ok(ceremonialAtCallback ~= nil
+     and ceremonialAtCallback[1] == cr
+     and ceremonialAtCallback[2] == cg
+     and ceremonialAtCallback[3] == cb,
+     "applyFonts() runs BEFORE subscribers -- the wordmark repaint lands last and sticks")
+  ok(cr == wr and cg == wg and cb == wb,
+     "the ceremonial object itself is back on the new theme's text token")
+
+  -- ...and the colour the subscriber painted tracked the NEW theme, not the old one.
+  local nr, ng, nb = UI.Color("accent")
+  ok(painted[1] == nr and painted[2] == ng and painted[3] == nb,
+     "the repaint reads the NEW theme's accent (live re-tint, not a build-time bake)")
+  ok(not (nr == ar and ng == ag and nb == ab),
+     "and that accent genuinely moved with the theme")
 end
 
 ----------------------------------------------------------------------

@@ -421,12 +421,25 @@ function Core:EnsureHub()
     local mark = UI.MakerMark(titleBar, { size = 22 })
     mark:SetPoint("LEFT", titleBar, "LEFT", 10, 0)
 
-    -- Suite wordmark in CEREMONIAL (MORPHEUS >=16, cream) — the mark + wordmark lockup.
+    -- Suite wordmark in CEREMONIAL (MORPHEUS >=16) — the mark + wordmark lockup.
+    -- COLOUR (owner, 2026-08-03 "this text should be red i believe"): the wordmark wears
+    -- the theme ACCENT token — the suite crimson the Nexus NEXUS wordmark and the Raid
+    -- Prep title already carry, so all three headers speak one colour. Routed through
+    -- UI.Skin rather than baked into the string as a |cff escape, so it re-tints LIVE on
+    -- ThemeChanged (a Stormwind or Felwood theme gets its own accent, not a stale red).
+    -- Ordering is what makes this safe: SetTheme runs applyFonts() BEFORE
+    -- fireThemeChanged(), so this per-FontString colour lands after the shared ceremonial
+    -- FontObject's cream re-tint and wins every time. The MORPHEUS ceremonial FACE is
+    -- brand-locked and untouched (BRAND_SPEC §3/§7) — colour only, face unchanged.
     local title = titleBar:CreateFontString(nil, "OVERLAY")
     title:SetFontObject(UI.fonts.ceremonial)
     title:SetPoint("LEFT", mark, "RIGHT", 8, 0)
     title:SetText("Daseeki Suite")
+    UI.Skin(title, function(self) self:SetTextColor(UI.Color("accent")) end)
 
+    -- The version suffix stays MUTED (UI.fonts.small): it is metadata riding beside the
+    -- wordmark, the same secondary register as the breadcrumb on the far end of this bar.
+    -- Accenting it too would put two crimson weights in one lockup and blunt the wordmark.
     local ver = C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata(ADDON, "Version")
     local verFS = titleBar:CreateFontString(nil, "OVERLAY")
     verFS:SetFontObject(UI.fonts.small)

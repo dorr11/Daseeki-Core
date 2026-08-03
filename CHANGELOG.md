@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- Suite settings window, title bar: the "Daseeki Suite" wordmark is now painted in the
+  active theme's ACCENT colour (the suite crimson) instead of cream, matching the Nexus
+  NEXUS wordmark and the Raid Prep title. It re-tints live on a theme change rather than
+  baking a fixed colour, so a non-crimson theme gets its own accent; the MORPHEUS
+  ceremonial face is unchanged. The "v2.2.0" suffix beside it stays muted — it is
+  metadata, in the same secondary register as the breadcrumb at the other end of the bar.
 - Suite settings window, left sidebar: the CORE group (Appearance) now renders ABOVE
   the SUITE group, and the addons under SUITE are listed in alphabetical order by
   their display name instead of in registration order. The sort runs when the sidebar
