@@ -13,6 +13,8 @@
 --   1) FONT LOAD GUARD -- the unreadable-font-file cases (see CASES below).
 --   2) FIREWALL        -- core.lua + theme.lua may create ONLY the documented
 --                         globals. Any other leaked global fails the run.
+--   3) VERSION GUARD   -- CORE_VERSION reads the .toc; RequireCore compares,
+--                         talks once, and never raises (NW-6).
 --
 -- Each case executes core.lua + theme.lua in a FRESH global environment
 -- (setfenv), so the guard's session caches (UI._faceProbe / _fallbackTold /
@@ -92,6 +94,21 @@ if parseBad > 0 then
   print(("ABORT: %d file(s) failed to compile; no cases run."):format(parseBad))
   os.exit(1)
 end
+-- The .toc's own ## Version, read the same way the client would hand it to
+-- GetAddOnMetadata. Gate 3 asserts Core republishes exactly this.
+local function readTocVersion(tocPath)
+  local fh = io.open(tocPath, "r")
+  if not fh then return nil end
+  local v
+  for line in fh:lines() do
+    v = v or line:match("^%s*##%s*Version%s*:%s*(%S+)")
+  end
+  fh:close()
+  return v
+end
+local TOC_VERSION = readTocVersion(P(TOC_FILE))
+if not TOC_VERSION then print("ABORT: .toc has no ## Version") os.exit(1) end
+
 -- theme.lua must actually be in the .toc, or the guard ships unloaded.
 local sawTheme, sawCore = false, false
 for _, rel in ipairs(tocFiles) do
@@ -128,10 +145,25 @@ end
 ----------------------------------------------------------------------
 local function normp(p) return type(p) == "string" and (p:lower():gsub("\\", "/")) or p end
 
-local function buildEnv(fontModes, denyProbe)
+-- `metaVersion` is what the client reports for ## Version; false makes the
+-- metadata API absent entirely (the unreadable-version case gate 3 covers).
+local function buildEnv(fontModes, denyProbe, metaVersion)
   local env = {}
   env._G = env
   setmetatable(env, { __index = _G })
+
+  if metaVersion == nil then metaVersion = TOC_VERSION end
+  if metaVersion == false then
+    env.C_AddOns = { GetAddOnMetadata = false }   -- present but not a function
+    env.GetAddOnMetadata = false
+  else
+    local function meta(name, key)
+      if name == ADDON_NAME and key == "Version" then return metaVersion end
+      return nil
+    end
+    env.C_AddOns = { GetAddOnMetadata = meta }
+    env.GetAddOnMetadata = meta
+  end
 
   local modes = {}
   for path, m in pairs(fontModes or {}) do modes[normp(path)] = m end
@@ -232,8 +264,8 @@ local function buildEnv(fontModes, denyProbe)
 end
 
 -- Load core.lua + theme.lua into a fresh env. Returns env, Core, UI, leakedGlobals.
-local function loadCore(fontModes, denyProbe)
-  local env = buildEnv(fontModes, denyProbe)
+local function loadCore(fontModes, denyProbe, metaVersion)
+  local env = buildEnv(fontModes, denyProbe, metaVersion)
   local before = {}
   for k in pairs(env) do before[k] = true end
 
@@ -478,6 +510,101 @@ do
   eq(#bad, 0, "no unexpected globals leaked (" .. table.concat(bad, ", ") .. ")")
   ok(env.DaseekiUI ~= nil, "DaseekiUI published")
   ok(env.DaseekiSuite ~= nil, "DaseekiSuite published")
+end
+
+----------------------------------------------------------------------
+-- 3) VERSION GUARD (NW-6): CORE_VERSION + RequireCore
+--
+-- The contract other addons build on: a stale Core must degrade with ONE chat
+-- line, never a Lua error, and a current Core must never nag.
+----------------------------------------------------------------------
+print("\n== GATE 3: version guard ==")
+
+caseName = "CORE_VERSION reads the .toc"
+print("\n-- " .. caseName)
+do
+  local env, Core = loadCore(nil)
+  login(env)
+  eq(Core.CORE_VERSION, TOC_VERSION, "CORE_VERSION is the .toc's ## Version")
+  eq(env.DaseekiSuite.CORE_VERSION, TOC_VERSION, "published on the global DaseekiSuite")
+  -- The .toc stamp is load-bearing: suite addons guard the ledger kit on 2.2.0,
+  -- so an under-stamped Core reads as outdated to every guarded caller.
+  ok(Core.CompareVersions(TOC_VERSION, "2.2.0") >= 0,
+     "shipped .toc version is at least the 2.2.0 the suite guards on (got " .. tostring(TOC_VERSION) .. ")")
+end
+
+caseName = "CompareVersions"
+print("\n-- " .. caseName)
+do
+  local _, Core = loadCore(nil)
+  local C = Core.CompareVersions
+  eq(C("2.2.0", "2.2.0"), 0, "equal versions compare equal")
+  eq(C("2.2", "2.2.0"), 0, "a missing component reads as 0")
+  eq(C("2.10.0", "2.9.0"), 1, "components compare NUMERICALLY, not as strings")
+  eq(C("2.0.0", "2.2.0"), -1, "older minor is less")
+  eq(C("3.0.0", "2.9.9"), 1, "newer major is greater")
+  eq(C("2.2.0-n1", "2.2.0"), 0, "a pre-release tail is ignored")
+  eq(C("2.2.1", "2.2.0"), 1, "newer patch is greater")
+end
+
+caseName = "RequireCore on a CURRENT Core"
+print("\n-- " .. caseName)
+do
+  local env, Core = loadCore(nil, nil, "2.2.0")
+  login(env)
+  eq(Core.RequireCore("2.2.0", "Nexus cards"), true, "exact match passes")
+  eq(Core.RequireCore("2.0.0", "Nexus cards"), true, "older requirement passes")
+  eq(Core:RequireCore("2.2.0", "Nexus cards"), true, "a colon call is tolerated, not an error")
+  eq(countNotices(env, "update Daseeki-Core"), 0, "a current Core never nags")
+end
+
+caseName = "RequireCore on a STALE Core"
+print("\n-- " .. caseName)
+do
+  local env, Core = loadCore(nil, nil, "2.0.0")
+  login(env)
+  eq(Core.RequireCore("2.2.0", "Nexus character cards"), false, "stale Core fails the guard")
+  eq(countNotices(env, "update Daseeki-Core"), 1, "exactly one chat line")
+  local msg = env.__notices[#env.__notices]
+  ok(msg:find("v2.2.0", 1, true) ~= nil, "notice names the version NEEDED")
+  ok(msg:find("v2.0.0", 1, true) ~= nil, "notice names the version INSTALLED")
+  ok(msg:find("Nexus character cards", 1, true) ~= nil, "notice names the caller")
+  ok(msg:find("|c", 1, true) == nil, "notice is plain-copy text (no color escapes)")
+
+  -- Once per session per caller: a guard inside a per-row builder must not
+  -- narrate itself once per row.
+  for _ = 1, 20 do Core.RequireCore("2.2.0", "Nexus character cards") end
+  eq(countNotices(env, "update Daseeki-Core"), 1, "still one line after 20 more calls")
+  -- ...but a DIFFERENT caller is still told about its own feature.
+  eq(Core.RequireCore("2.2.0", "Nexus timers dock"), false, "second caller also gated")
+  eq(countNotices(env, "update Daseeki-Core"), 2, "the second caller gets its own line")
+end
+
+caseName = "RequireCore never raises"
+print("\n-- " .. caseName)
+do
+  local env, Core = loadCore(nil, nil, "2.0.0")
+  login(env)
+  for _, bad in ipairs({ "", "not.a.version", "..", "2.x.0" }) do
+    local okCall, res = pcall(Core.RequireCore, bad, "junk")
+    ok(okCall, "RequireCore(" .. string.format("%q", bad) .. ") did not raise")
+    ok(res == true or res == false, "...and returned a boolean (got " .. tostring(res) .. ")")
+  end
+  local okNil = pcall(Core.RequireCore, nil, "junk")
+  ok(okNil, "RequireCore(nil) did not raise")
+  eq(Core.RequireCore(nil, "junk"), true, "an unusable requirement passes rather than blocks")
+end
+
+caseName = "unreadable version metadata passes"
+print("\n-- " .. caseName)
+do
+  -- No GetAddOnMetadata at all. Switching working features off over a version we
+  -- could not read would be worse than the mixed-version risk.
+  local env, Core = loadCore(nil, nil, false)
+  login(env)
+  eq(Core.CORE_VERSION, nil, "CORE_VERSION is nil when metadata is unreadable")
+  eq(Core.RequireCore("9.9.9", "Nexus cards"), true, "guard passes rather than blocking")
+  eq(countNotices(env, "update Daseeki-Core"), 0, "and says nothing")
 end
 
 ----------------------------------------------------------------------

@@ -15,6 +15,8 @@
         DaseekiSuite:Open(id)     -- show hub at a section (lazy-builds it)
         DaseekiSuite:Toggle(id)
         DaseekiSuite.available     -- truthy when Core is loaded (addons check this)
+        DaseekiSuite.CORE_VERSION  -- this Core's ## Version string (nil if unreadable)
+        DaseekiSuite.RequireCore(minVersion[, caller])  -- cross-addon API guard
 
     Each feature addon keeps its own SavedVariables; Core only stores hub window
     state in DaseekiCoreDB.
@@ -27,6 +29,84 @@ DaseekiSuite = Core
 _G.DaseekiSuite = Core
 
 Core.available = true
+
+-- ── Version identity + cross-addon API guard ──────────────────────────────────
+-- Suite addons must guard a Core API against the Core VERSION that introduced it
+-- and degrade with a message rather than a Lua error (ROLLOUT_CONTINUITY_AUDIT
+-- gate D-13 / NW-6). The version comes from our own .toc so there is exactly one
+-- source of truth, and is cached because GetAddOnMetadata is a C call.
+
+local function readCoreVersion()
+    local get = (C_AddOns and C_AddOns.GetAddOnMetadata) or _G.GetAddOnMetadata
+    if type(get) ~= "function" then return nil end
+    local ok, v = pcall(get, ADDON, "Version")
+    if not ok or type(v) ~= "string" or v == "" then return nil end
+    return v
+end
+
+Core.CORE_VERSION = readCoreVersion()
+
+-- Numeric-per-component compare. Missing components read as 0 ("2.2" == "2.2.0")
+-- and a non-numeric tail is ignored, so a pre-release stamp like "2.2.0-n1"
+-- compares as 2.2.0. Returns -1 / 0 / 1.
+local function versionParts(v)
+    local out = {}
+    for chunk in tostring(v or ""):gmatch("[^%.]+") do
+        out[#out + 1] = tonumber(chunk:match("^%s*(%d+)")) or 0
+    end
+    return out
+end
+
+function Core.CompareVersions(a, b)
+    local pa, pb = versionParts(a), versionParts(b)
+    local n = (#pa > #pb) and #pa or #pb
+    for i = 1, n do
+        local x, y = pa[i] or 0, pb[i] or 0
+        if x ~= y then return (x < y) and -1 or 1 end
+    end
+    return 0
+end
+
+-- One chat line per session per (caller, minVersion) pair; a guard sitting in a
+-- per-row builder must not narrate itself once per row.
+local requireTold = {}
+
+-- Plain text, no color escapes — the line is meant to be copied into a report.
+local function requireNotice(msg)
+    local out = _G.DEFAULT_CHAT_FRAME
+    if out and type(out.AddMessage) == "function" then
+        pcall(out.AddMessage, out, msg)
+    elseif type(_G.print) == "function" then
+        pcall(_G.print, msg)
+    end
+end
+
+-- True when the installed Core is at least `minVersion`. On failure, prints one
+-- explanatory line and returns false; NEVER raises. `caller` is a short label
+-- for the feature being gated ("Nexus character cards") and only shapes the text.
+function Core.RequireCore(minVersion, caller, callerIfColon)
+    -- Tolerate a colon call (DaseekiSuite:RequireCore("2.2.0", "...")): a
+    -- cross-addon entry point should not turn the wrong invocation style into
+    -- an error, and the caller label must survive the shift.
+    if minVersion == Core then minVersion, caller = caller, callerIfColon end
+    if type(minVersion) ~= "string" and type(minVersion) ~= "number" then return true end
+
+    local installed = Core.CORE_VERSION
+    -- Metadata unreadable (odd client state): pass rather than switch off working
+    -- features over a version we could not read.
+    if not installed then return true end
+    if Core.CompareVersions(installed, minVersion) >= 0 then return true end
+
+    local key = tostring(caller or "?") .. "<" .. tostring(minVersion)
+    if not requireTold[key] then
+        requireTold[key] = true
+        requireNotice(("Daseeki: %s needs Daseeki Core v%s, v%s installed — update Daseeki-Core. "
+            .. "That part of the interface stays off until you do.")
+            :format(tostring(caller or "a Daseeki addon"), tostring(minVersion), tostring(installed)))
+    end
+    return false
+end
+
 Core.sections  = {}   -- id -> section/addon definition table
 Core.regOrder  = {}   -- suite addon ids in REGISTRATION ORDER (sidebar order)
 Core.coreOrder = {}   -- Core-owned page ids (Appearance, future) — separate group

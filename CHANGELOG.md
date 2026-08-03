@@ -1,6 +1,16 @@
 # Changelog
 
 ## Unreleased
+- New API: DaseekiSuite.CORE_VERSION (this Core's version string, read from the
+  .toc once at load) and DaseekiSuite.RequireCore(minVersion[, caller]) — the
+  cross-addon version guard. A suite addon calls it before touching an API a
+  given Core introduced; if this Core is older it gets `false` plus ONE plain
+  chat line ("... needs Daseeki Core v2.2.0, v2.0.0 installed — update
+  Daseeki-Core") instead of a Lua error, and the feature simply stays off.
+  DaseekiSuite.CompareVersions(a, b) is exposed alongside it.
+- The .toc ## Version is stamped 2.2.0 (was 2.0.0), matching the release train.
+  Suite addons guard the ledger-kit APIs on 2.2.0, so the stamp is load-bearing:
+  an under-stamped Core reads as outdated to every guarded caller.
 - Fixed: a font the game client cannot read no longer blanks the UI. The client can
   only load font FILES that were on disk when it STARTED — a font shipped or installed
   during a session resolves to a valid path but loads as nothing, so every FontString
