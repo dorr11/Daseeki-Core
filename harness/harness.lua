@@ -15,6 +15,10 @@
 --                         globals. Any other leaked global fails the run.
 --   3) VERSION GUARD   -- CORE_VERSION reads the .toc; RequireCore compares,
 --                         talks once, and never raises (NW-6).
+--   4) SIDEBAR ORDER   -- the hub nav plan: CORE group above SUITE, suite addons
+--                         alphabetical by display name at RENDER time (so a late
+--                         registration slots mid-list), sections under the active
+--                         entry only.
 --
 -- Each case executes core.lua + theme.lua in a FRESH global environment
 -- (setfenv), so the guard's session caches (UI._faceProbe / _fallbackTold /
@@ -605,6 +609,188 @@ do
   eq(Core.CORE_VERSION, nil, "CORE_VERSION is nil when metadata is unreadable")
   eq(Core.RequireCore("9.9.9", "Nexus cards"), true, "guard passes rather than blocking")
   eq(countNotices(env, "update Daseeki-Core"), 0, "and says nothing")
+end
+
+----------------------------------------------------------------------
+-- 4) SIDEBAR ORDER: Core-above-Suite + alphabetical suite
+--
+-- The nav ORDER is pure data in core.lua (Core:GetNavPlan / Core:GetSuiteOrder);
+-- hub.lua only renders it. That is what makes it pinnable here without a frame
+-- stack, and it is why these cases are the contract for the sidebar's layout.
+----------------------------------------------------------------------
+print("\n== GATE 4: sidebar order ==")
+
+-- Register a suite addon with just an id + display title.
+local function reg(Core, id, title, sections)
+  return Core:RegisterAddon({ id = id, title = title, sections = sections })
+end
+
+-- The ids of the "addon" entries in a plan, in render order (groups dropped).
+local function planAddonIds(plan)
+  local out = {}
+  for _, e in ipairs(plan) do
+    if e.kind == "addon" then out[#out + 1] = e.id end
+  end
+  return out
+end
+
+-- The group headings in render order.
+local function planGroups(plan)
+  local out = {}
+  for _, e in ipairs(plan) do
+    if e.kind == "group" then out[#out + 1] = e.title end
+  end
+  return out
+end
+
+-- Index of the first entry matching a predicate (nil if absent).
+local function indexOf(plan, pred)
+  for i, e in ipairs(plan) do if pred(e) then return i end end
+  return nil
+end
+
+local function joined(t) return table.concat(t, ",") end
+
+-- ---- CASE: the CORE group renders ABOVE the SUITE group ---------------------
+caseName = "Core group renders above Suite group"
+print("\n-- " .. caseName)
+do
+  local env, Core = loadCore(nil)
+  login(env)
+  -- The Appearance page exactly as hub.lua registers it.
+  Core:RegisterCorePage({ id = "__appearance", title = "Appearance", flow = true,
+    sections = { { id = "_main", title = "Appearance", legacy = false } } })
+  reg(Core, "armory", "Armory")
+  reg(Core, "nexus",  "Nexus")
+
+  local plan = Core:GetNavPlan(nil)
+  eq(joined(planGroups(plan)), "Core,Suite", "group headings render Core then Suite")
+
+  local coreGroup  = indexOf(plan, function(e) return e.kind == "group" and e.title == "Core"  end)
+  local suiteGroup = indexOf(plan, function(e) return e.kind == "group" and e.title == "Suite" end)
+  local appear     = indexOf(plan, function(e) return e.kind == "addon" and e.id == "__appearance" end)
+  local firstSuite = indexOf(plan, function(e) return e.kind == "addon" and e.id == "armory" end)
+  ok(coreGroup < suiteGroup, "the Core heading precedes the Suite heading")
+  ok(appear > coreGroup and appear < suiteGroup, "the Core page sits INSIDE the Core group")
+  ok(firstSuite > suiteGroup, "suite addons sit below the Suite heading")
+  eq(joined(planAddonIds(plan)), "__appearance,armory,nexus", "full render order is Core page, then suite")
+
+  -- With no Core page registered at all there must be no empty Core heading.
+  local _, Bare = loadCore(nil)
+  reg(Bare, "armory", "Armory")
+  eq(joined(planGroups(Bare:GetNavPlan(nil))), "Suite", "an empty Core group prints no heading")
+end
+
+-- ---- CASE: suite entries sort ALPHABETICALLY, not by registration -----------
+caseName = "suite sorts alphabetically by display name"
+print("\n-- " .. caseName)
+do
+  local env, Core = loadCore(nil)
+  login(env)
+  -- Deliberately reverse-alphabetical registration order.
+  reg(Core, "nexus",   "Nexus")
+  reg(Core, "ledger",  "Ledger")
+  reg(Core, "banker",  "Banker")
+  reg(Core, "armory",  "Armory")
+
+  eq(joined(Core:GetSuiteOrder()), "armory,banker,ledger,nexus",
+     "sorted by TITLE regardless of registration order")
+  eq(joined(Core.regOrder), "nexus,ledger,banker,armory",
+     "regOrder is left untouched as the insertion log")
+  eq(joined(planAddonIds(Core:GetNavPlan(nil))), "armory,banker,ledger,nexus",
+     "the nav plan renders that same alphabetical order")
+
+  -- Repeated calls must not shuffle (a non-total comparator would).
+  eq(joined(Core:GetSuiteOrder()), joined(Core:GetSuiteOrder()), "the order is stable across calls")
+end
+
+-- ---- CASE: a LATE registration inserts MID-LIST -----------------------------
+-- The whole reason the sort runs at render time: an addon loading after the hub
+-- already exists must slot into its alphabetical place, not land at the bottom.
+caseName = "late registration inserts mid-list"
+print("\n-- " .. caseName)
+do
+  local env, Core = loadCore(nil)
+  login(env)
+  reg(Core, "armory", "Armory")
+  reg(Core, "nexus",  "Nexus")
+  eq(joined(Core:GetSuiteOrder()), "armory,nexus", "two addons before the late load")
+
+  -- ...now a third addon registers long after the hub was built.
+  reg(Core, "compass", "Compass")
+  eq(joined(Core:GetSuiteOrder()), "armory,compass,nexus",
+     "the late addon lands BETWEEN the two, not at the end")
+  eq(joined(Core.regOrder), "armory,nexus,compass", "and it was appended last to regOrder")
+
+  -- One that sorts to the FRONT, and one to the BACK, from the same late position.
+  reg(Core, "abacus", "Abacus")
+  reg(Core, "zephyr", "Zephyr")
+  eq(joined(Core:GetSuiteOrder()), "abacus,armory,compass,nexus,zephyr",
+     "late registrations land at the front and the back correctly too")
+
+  -- Re-registering an existing id must UPDATE it, not duplicate it, and a renamed
+  -- addon must re-sort to its new place.
+  reg(Core, "compass", "Yardstick")
+  eq(#Core.regOrder, 5, "re-registering an id does not duplicate the entry")
+  eq(joined(Core:GetSuiteOrder()), "abacus,armory,nexus,compass,zephyr",
+     "a renamed addon re-sorts under its NEW display name")
+end
+
+-- ---- CASE: the sort is case-insensitive and totally ordered -----------------
+caseName = "sort is case-insensitive with a stable tie-break"
+print("\n-- " .. caseName)
+do
+  local env, Core = loadCore(nil)
+  login(env)
+  -- A raw byte compare puts EVERY capitalised title ahead of every lowercase one
+  -- ("Zephyr" < "armory" because Z=90 < a=97). Alphabetical means case-insensitive.
+  reg(Core, "zephyr", "Zephyr")
+  reg(Core, "armory", "armory")
+  eq(joined(Core:GetSuiteOrder()), "armory,zephyr", "lowercase title still sorts before a capitalised Z")
+
+  -- Two addons sharing a display name: break on id so the order is TOTAL and the
+  -- same every session no matter which loaded first.
+  local _, Tie = loadCore(nil)
+  reg(Tie, "b_ledger", "Ledger")
+  reg(Tie, "a_ledger", "Ledger")
+  eq(joined(Tie:GetSuiteOrder()), "a_ledger,b_ledger", "equal titles break on addon id")
+
+  -- A def with no title falls back to its id rather than sorting as "".
+  local _, NoTitle = loadCore(nil)
+  NoTitle:RegisterAddon({ id = "middle" })
+  reg(NoTitle, "alpha", "Alpha")
+  reg(NoTitle, "omega", "Omega")
+  eq(joined(NoTitle:GetSuiteOrder()), "alpha,middle,omega", "a titleless addon sorts under its id")
+end
+
+-- ---- CASE: sub-sections indent under the ACTIVE entry only ------------------
+caseName = "sections expand under the active entry only"
+print("\n-- " .. caseName)
+do
+  local env, Core = loadCore(nil)
+  login(env)
+  reg(Core, "armory", "Armory", { { id = "gear", title = "Gear" }, { id = "sets", title = "Sets" } })
+  reg(Core, "nexus",  "Nexus")
+
+  local collapsed = Core:GetNavPlan(nil)
+  eq(indexOf(collapsed, function(e) return e.kind == "section" end), nil,
+     "nothing expands when no addon is active")
+
+  local plan = Core:GetNavPlan("armory")
+  local ids = {}
+  for _, e in ipairs(plan) do
+    if e.kind == "section" then ids[#ids + 1] = e.sectionId end
+  end
+  eq(joined(ids), "gear,sets", "the active addon's sections expand in declaration order")
+
+  local armory = indexOf(plan, function(e) return e.kind == "addon" and e.id == "armory" end)
+  local nexus  = indexOf(plan, function(e) return e.kind == "addon" and e.id == "nexus"  end)
+  local firstS = indexOf(plan, function(e) return e.kind == "section" end)
+  ok(firstS > armory and firstS < nexus, "they sit BETWEEN their own addon and the next one")
+
+  -- A single-section addon stays collapsed even when active (no pointless child row).
+  eq(indexOf(Core:GetNavPlan("nexus"), function(e) return e.kind == "section" end), nil,
+     "a single-section addon does not expand")
 end
 
 ----------------------------------------------------------------------

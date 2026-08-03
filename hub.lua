@@ -1,10 +1,11 @@
 --[[
     Daseeki Core — the combined options window (DaseekiUI chrome, Direction B).
 
-    Left sidebar navigation:
-      * "SUITE" group — registered addons in REGISTRATION ORDER; the active addon's
-        sections indent beneath it.
-      * "CORE" group — Core-owned pages (Appearance theme picker + future slots).
+    Left sidebar navigation (order comes from Core:GetNavPlan in core.lua):
+      * "CORE" group FIRST — Core-owned pages (Appearance theme picker + future slots).
+      * "SUITE" group below it — registered addons in ALPHABETICAL display-name
+        order, sorted at RENDER time so a late-loading addon still slots into place;
+        the active entry's sections indent beneath it.
 
     The content area hosts each (addon, section) pane, built lazily:
       * New flow sections: a DaseekiUI scroll+clip pane; build(flow) uses the flow API.
@@ -209,26 +210,16 @@ function Core:RebuildNav()
         y = y + 24
     end
 
-    -- SUITE group (registration order)
-    if #self.regOrder > 0 then addGroup("Suite") end
-    for _, id in ipairs(self.regOrder) do
-        local def = self.sections[id]
-        if def then
-            addEntry(def, "addon", id, nil)
-            -- Sections indent under the ACTIVE addon only.
-            if self._currentAddon == id and #(def.sections or {}) > 1 then
-                for _, s in ipairs(def.sections) do
-                    addEntry({ title = s.title or s.id }, "section", id, s.id)
-                end
-            end
+    -- Order is DATA (core.lua): CORE group first, then SUITE alphabetical, with the
+    -- active entry's sections indented beneath it. This loop only renders.
+    for _, e in ipairs(self:GetNavPlan(self._currentAddon)) do
+        if e.kind == "group" then
+            addGroup(e.title)
+        elseif e.kind == "addon" then
+            addEntry(e.def, "addon", e.id, nil)
+        else
+            addEntry({ title = e.title }, "section", e.id, e.sectionId)
         end
-    end
-
-    -- CORE group
-    if #self.coreOrder > 0 then addGroup("Core") end
-    for _, id in ipairs(self.coreOrder) do
-        local def = self.sections[id]
-        if def then addEntry(def, "addon", id, nil) end
     end
 end
 
@@ -525,10 +516,13 @@ function Core:EnsureHub()
 
     self:RebuildNav()
 
-    -- Default selection: last addon, else first registered addon, else Appearance.
+    -- Default selection: last addon, else the FIRST SUITE addon in the order the
+    -- sidebar now shows (alphabetical, not registration), else Appearance. A fresh
+    -- install still lands on a suite addon rather than the theme picker even though
+    -- Core renders above Suite — the Core group is a destination, not the default.
     local startId = self.db and self.db.lastAddon
     if not (startId and self.sections[startId]) then
-        startId = self.regOrder[1] or self.coreOrder[1]
+        startId = self:GetSuiteOrder()[1] or self.coreOrder[1]
     end
     if startId then self:ShowAddon(startId) end
 

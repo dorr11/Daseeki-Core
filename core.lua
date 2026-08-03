@@ -108,7 +108,9 @@ function Core.RequireCore(minVersion, caller, callerIfColon)
 end
 
 Core.sections  = {}   -- id -> section/addon definition table
-Core.regOrder  = {}   -- suite addon ids in REGISTRATION ORDER (sidebar order)
+Core.regOrder  = {}   -- suite addon ids in REGISTRATION ORDER (insertion log only —
+                      -- the sidebar sorts alphabetically at render time; see
+                      -- Core:GetSuiteOrder)
 Core.coreOrder = {}   -- Core-owned page ids (Appearance, future) — separate group
 
 -- Account-wide state (shared across characters). Window GEOMETRY lives in the
@@ -239,6 +241,70 @@ function Core:GetAddonSection(addonId, sectionId)
         for _, s in ipairs(secs) do if s.id == sectionId then return s end end
     end
     return secs[1]
+end
+
+-- ── Sidebar order (owner directives) ──────────────────────────────────────────
+-- The ORDER lives here rather than in hub.lua for two reasons: it is pure data, so
+-- the headless harness can pin it without a frame stack; and the sidebar and the
+-- hub's default selection then agree on what "first" means.
+
+-- Sort key for a suite entry: the DISPLAY label, lowercased. Plain string compare —
+-- every label in this suite is ASCII, so a locale collator would buy nothing and
+-- would not be available in-client anyway. Lowercasing matters: a raw byte compare
+-- would sort every capitalised title ahead of every lowercase one ("Zephyr" < "armory").
+local function navSortKey(def, id)
+    return string.lower(tostring((def and def.title) or id or ""))
+end
+
+-- Suite addon ids in ALPHABETICAL display-name order.
+-- regOrder stays the registration/insertion log; sorting happens HERE, at render
+-- time, so an addon that loads late still slots into its alphabetical place instead
+-- of landing at the bottom of the list. Ties break on the addon id so the order is
+-- total and identical every session regardless of load order.
+function Core:GetSuiteOrder()
+    local out = {}
+    for i, id in ipairs(self.regOrder) do out[i] = id end
+    table.sort(out, function(a, b)
+        local ka, kb = navSortKey(self.sections[a], a), navSortKey(self.sections[b], b)
+        if ka == kb then return a < b end
+        return ka < kb
+    end)
+    return out
+end
+
+-- The sidebar's ordered entry list, as data. hub.lua renders it verbatim.
+--   * The CORE group renders ABOVE the SUITE group (owner directive).
+--   * Suite entries are alphabetical by display name (owner directive).
+--   * Sub-sections indent under the ACTIVE entry only, and only when it has more
+--     than one — same rule for Core pages and suite addons alike.
+-- Entry shapes:
+--   { kind = "group",   title = "Core" }
+--   { kind = "addon",   id = <addonId>, def = <def> }
+--   { kind = "section", id = <addonId>, sectionId = <id>, title = <label> }
+function Core:GetNavPlan(currentAddonId)
+    local plan = {}
+    local function group(title) plan[#plan + 1] = { kind = "group", title = title } end
+    local function entry(id)
+        local def = self.sections[id]
+        if not def then return end
+        plan[#plan + 1] = { kind = "addon", id = id, def = def }
+        if id == currentAddonId and #(def.sections or {}) > 1 then
+            for _, s in ipairs(def.sections) do
+                plan[#plan + 1] = {
+                    kind = "section", id = id, sectionId = s.id, title = s.title or s.id,
+                }
+            end
+        end
+    end
+
+    if #self.coreOrder > 0 then group("Core") end
+    for _, id in ipairs(self.coreOrder) do entry(id) end
+
+    local suite = self:GetSuiteOrder()
+    if #suite > 0 then group("Suite") end
+    for _, id in ipairs(suite) do entry(id) end
+
+    return plan
 end
 
 -- Sections sorted by order then title (Details!-style "iterate the namespace").

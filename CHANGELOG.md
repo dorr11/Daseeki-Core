@@ -1,6 +1,18 @@
 # Changelog
 
 ## Unreleased
+- Suite settings window, left sidebar: the CORE group (Appearance) now renders ABOVE
+  the SUITE group, and the addons under SUITE are listed in alphabetical order by
+  their display name instead of in registration order. The sort runs when the sidebar
+  is drawn, not when an addon registers, so an addon that loads late in the session
+  still slots into its alphabetical place rather than landing at the bottom — and the
+  list reads the same every session regardless of load order. Ties break on addon id,
+  and the compare is case-insensitive.
+- New API: DaseekiSuite:GetSuiteOrder() (registered addon ids in sidebar order) and
+  DaseekiSuite:GetNavPlan([activeAddonId]) (the sidebar's ordered entry list as plain
+  data). The nav ORDER now lives in core.lua and hub.lua only renders it, which is
+  what lets the self-test harness pin the layout without a frame stack. The hub's
+  default selection uses the same order, so "first addon" means the first one shown.
 - New API: DaseekiSuite.CORE_VERSION (this Core's version string, read from the
   .toc once at load) and DaseekiSuite.RequireCore(minVersion[, caller]) — the
   cross-addon version guard. A suite addon calls it before touching an API a
