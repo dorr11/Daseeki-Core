@@ -2,6 +2,7 @@
 ## Title: Daseeki Core
 ## Notes: Shared options hub and UI toolkit for the Daseeki addon suite
 ## Author: Daseeki
+## X-License: All Rights Reserved
 ## X-Curse-Project-ID: 1592402
 ## X-Bundled-Fonts: Fira Sans Condensed Medium — SIL Open Font License 1.1 (see fonts/OFL.txt)
 ## SavedVariables: DaseekiCoreDB

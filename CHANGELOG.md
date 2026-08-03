@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Changed: Daseeki Core is now licensed **All Rights Reserved** rather than MIT, matching the rest of the suite; the bundled Fira Sans Condensed font keeps its own SIL Open Font License 1.1 (`fonts/OFL.txt`) and is unaffected.
+
 ## 2.2.0 — 2026-08-03
 
 ### Added
