@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed: **the minimap button finally wears the Daseeki mark.** It had been showing a
+  generic Blizzard cog — the custom artwork was a `.jpg`, a format WoW cannot load, so
+  the button silently fell back to a stock icon. The button now carries the suite maker's
+  mark: the crimson brand diamond with its bronze keyline, the same hallmark the settings
+  window and the Nexus dashboard wear in their title bars, drawn to read at minimap size.
 - Changed: Daseeki Core is now licensed **All Rights Reserved** rather than MIT, matching the rest of the suite; the bundled Fira Sans Condensed font keeps its own SIL Open Font License 1.1 (`fonts/OFL.txt`) and is unaffected.
 
 ## 2.2.0 — 2026-08-03

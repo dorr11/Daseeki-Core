@@ -7,14 +7,26 @@
     to a self-contained draggable button otherwise. Position is saved in
     DaseekiCoreDB (LibDBIcon manages its own `_minimapDB` sub-table).
 
-    Custom artwork: drop a texture at  Daseeki-Core/art/nightblade.tga  (or .blp).
-    Must be power-of-two dimensions (64x64 recommended). If the file is missing the
-    icon falls back to a built-in texture.
+    ── The button's face is the SUITE MAKER'S MARK ────────────────────────────
+    art/maker-mark.tga — the crimson-on-bronze brand diamond, authored by
+    dev/gen-core-glyphs.lua (64x64 BGRA type-2 TGA; read that file for the geometry
+    and why the colours are baked rather than themed). It is the same brandmark
+    UI.MakerMark draws on the hub titlebar and the Nexus shell header, restated bold
+    enough to survive the ~18px a minimap button gets.
+
+    It replaces art/nightblade.jpg, which never rendered at all: the WoW client reads
+    only .blp and .tga, so the icon silently fell through to INV_Misc_Gear_01 and the
+    suite's button wore Blizzard's cog.
+
+    NO SetTexCoord CROP on the mark. The classic 0.08/0.92 trim exists to shave the
+    baked border off Interface/Icons art; the mark carries its own 2px margin inside
+    the 64px field and a crop would clip its vertices. The trim is applied to the
+    FALLBACK icon only, which is Blizzard icon art and does need it.
 --]]
 
 local _, Core = ...
 
-local CUSTOM_ICON   = "Interface/AddOns/Daseeki-Core/art/nightblade"
+local CUSTOM_ICON   = "Interface/AddOns/Daseeki-Core/art/maker-mark"
 local FALLBACK_ICON = "Interface/Icons/INV_Misc_Gear_01"
 
 local function addTooltip(tip)
@@ -100,9 +112,12 @@ function Core:CreateMinimapButton()
 
         self._libDBIcon  = LibDBIcon
         self._minimapBtn = LibDBIcon:GetMinimapButton('DaseekiCore')
-        -- If the custom art is missing, fall back to a built-in icon.
-        if self._minimapBtn and self._minimapBtn.icon and not self._minimapBtn.icon:GetTexture() then
-            self._minimapBtn.icon:SetTexture(FALLBACK_ICON)
+        -- If the mark is missing, fall back to a built-in icon — and only THEN take
+        -- the border trim, which is Blizzard-icon housekeeping the mark does not want.
+        local ico = self._minimapBtn and self._minimapBtn.icon
+        if ico and not ico:GetTexture() then
+            ico:SetTexture(FALLBACK_ICON)
+            ico:SetTexCoord(0.08, 0.92, 0.08, 0.92)
         end
         return self._minimapBtn
     end
@@ -123,9 +138,13 @@ function Core:CreateMinimapButton()
 
     local ico = btn:CreateTexture(nil, 'ARTWORK')
     ico:SetSize(18, 18); ico:SetPoint('TOPLEFT', 7, -6)
-    ico:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     ico:SetTexture(CUSTOM_ICON)
-    if not ico:GetTexture() then ico:SetTexture(FALLBACK_ICON) end
+    -- Border trim on the FALLBACK only (see the file header): the mark ships its own
+    -- margin and a crop would take its points off.
+    if not ico:GetTexture() then
+        ico:SetTexture(FALLBACK_ICON)
+        ico:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    end
     btn.icon = ico
 
     local border = btn:CreateTexture(nil, 'OVERLAY')
