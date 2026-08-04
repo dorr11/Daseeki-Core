@@ -23,6 +23,10 @@
 --                         the ACCENT token through UI.Skin (no baked |cff escape),
 --                         the version suffix stays muted metadata, and the
 --                         ThemeChanged ordering that keeps that paint on top holds.
+--   6) BRAND MARK      -- the minimap button's CUSTOM_ICON resolves to a texture the
+--                         client can actually READ (.tga/.blp, never .jpg), in the
+--                         suite's 64x64 BGRA format, carrying the maker's-mark
+--                         diamond. Disk-level, because SetTexture fails silently.
 --
 -- Each case executes core.lua + theme.lua in a FRESH global environment
 -- (setfenv), so the guard's session caches (UI._faceProbe / _fallbackTold /
@@ -898,6 +902,136 @@ do
      "the repaint reads the NEW theme's accent (live re-tint, not a build-time bake)")
   ok(not (nr == ar and ng == ag and nb == ab),
      "and that accent genuinely moved with the theme")
+end
+
+----------------------------------------------------------------------
+-- 6) BRAND MARK: the minimap button's face is a real, loadable texture
+--
+-- The regression this gate exists for shipped for months: art/nightblade.jpg. The
+-- WoW client reads only .blp and .tga, so the icon path resolved to nothing,
+-- SetTexture failed SILENTLY (it does not raise, and there is no error to catch),
+-- and Core's minimap button wore Blizzard's INV_Misc_Gear_01 instead of the suite
+-- brandmark. No Lua assertion can see that — the check has to be made on disk,
+-- against the real bytes, which is why it lives in the harness and not in-game.
+--
+-- Pinned here:
+--   a) minimap.lua's CUSTOM_ICON is extensionless and inside our own AddOns path,
+--      and a file with a CLIENT-READABLE extension actually sits there.
+--   b) no client-unreadable art (.jpg/.png/...) is left under that base name, and
+--      nightblade.jpg specifically is gone.
+--   c) the .tga is the suite texture format byte-for-byte: 18-byte uncompressed
+--      true-colour header (type 2), 64x64, 32bpp BGRA, descriptor 0x28.
+--   d) it is the MAKER'S MARK and not a placeholder: an L1 rhombus silhouette that
+--      matches textures/diamond-mask.tga's shape family, brand crimson at the
+--      centre, a bronze keyline at the edge, air in the corners.
+--   e) the asset is REPRODUCIBLE — dev/gen-core-glyphs.lua, which authored it, is
+--      still in the tree.
+----------------------------------------------------------------------
+do
+  caseName = "brand mark"
+  print("\n== GATE 6: minimap brandmark asset ==")
+
+  local function slurp(path, mode)
+    local fh = io.open(path, mode or "rb")
+    if not fh then return nil end
+    local s = fh:read("*a"); fh:close(); return s
+  end
+
+  -- (a) the path minimap.lua actually hands the client -------------------------
+  local src = slurp(P("minimap.lua"), "r") or ""
+  local iconPath = src:match("local%s+CUSTOM_ICON%s*=%s*[\"']([^\"']+)[\"']")
+  ok(iconPath ~= nil, "minimap.lua declares a CUSTOM_ICON path")
+  iconPath = iconPath or ""
+  local norm = iconPath:gsub("\\", "/")
+  -- Plain-text prefix compare, NOT a Lua pattern: "Daseeki-Core" contains a hyphen,
+  -- which inside a pattern is the lazy quantifier and matches nothing here.
+  local PREFIX = "Interface/AddOns/" .. ADDON_NAME .. "/"
+  local inOurs = norm:sub(1, #PREFIX):lower() == PREFIX:lower()
+  ok(inOurs, "CUSTOM_ICON points inside our own AddOns folder")
+  ok(norm:match("%.%w+$") == nil,
+     "CUSTOM_ICON is extensionless -- the client picks .blp/.tga itself")
+
+  -- Repo-relative form: strip the Interface/AddOns/<Addon>/ prefix.
+  local rel = inOurs and norm:sub(#PREFIX + 1) or norm
+  local tga = slurp(P(rel .. ".tga"))
+  local blp = slurp(P(rel .. ".blp"))
+  ok(tga ~= nil or blp ~= nil,
+     ("a client-readable texture exists at %s (.tga/.blp)"):format(rel))
+
+  -- (b) nothing unreadable left behind ----------------------------------------
+  local UNREADABLE = { "jpg", "jpeg", "png", "gif", "bmp", "tif", "tiff", "psd" }
+  local strays = {}
+  for _, ext in ipairs(UNREADABLE) do
+    if slurp(P(rel .. "." .. ext)) then strays[#strays + 1] = ext end
+  end
+  eq(#strays, 0, "no client-unreadable art sits at the icon base name")
+  ok(slurp(P("art/nightblade.jpg")) == nil,
+     "art/nightblade.jpg is gone -- the .jpg that never rendered")
+
+  -- (c) suite texture format ---------------------------------------------------
+  if tga then
+    eq(#tga, 18 + 64 * 64 * 4, "the mark is exactly 16402 bytes (64x64 BGRA + 18-byte header)")
+    local h = { tga:byte(1, 18) }
+    eq(h[2], 0, "no colour map")
+    eq(h[3], 2, "TGA image type 2 (uncompressed true-colour)")
+    eq(h[13] + h[14] * 256, 64, "width 64")
+    eq(h[15] + h[16] * 256, 64, "height 64")
+    eq(h[17], 32, "32 bits per pixel")
+    eq(h[18], 0x28, "descriptor 0x28 -- 8-bit alpha, top-left origin")
+
+    -- (d) it is the mark ------------------------------------------------------
+    local function px(x, y)
+      local o = 18 + (y * 64 + x) * 4
+      local b, g, r, a = tga:byte(o + 1, o + 4)
+      return r, g, b, a
+    end
+    local function near(v, want, tol) return math.abs(v - want) <= (tol or 3) end
+
+    local c0 = select(4, px(0, 0))
+    local c1 = select(4, px(63, 0))
+    local c2 = select(4, px(0, 63))
+    local c3 = select(4, px(63, 63))
+    ok(c0 == 0 and c1 == 0 and c2 == 0 and c3 == 0,
+       "all four corners are fully transparent -- a diamond, not a square")
+
+    local cr, cg, cb, ca = px(32, 32)
+    eq(ca, 255, "the centre is fully opaque")
+    ok(near(cr, 192) and near(cg, 72) and near(cb, 60),
+       ("the centre is brand crimson #C0483C (got #%02X%02X%02X)"):format(cr, cg, cb))
+
+    -- First fully-opaque pixel scanning in along the widest row = the keyline.
+    local ex, ey = nil, 32
+    for x = 0, 63 do if select(4, px(x, ey)) >= 250 then ex = x break end end
+    ok(ex ~= nil, "the widest row has an opaque edge")
+    if ex then
+      local br, bg, bb = px(ex, ey)
+      ok(near(br, 156, 6) and near(bg, 122, 6) and near(bb, 69, 6),
+         ("the edge is the bronze keyline #9C7A45 (got #%02X%02X%02X)"):format(br, bg, bb))
+      ok(not (near(br, 255, 6) and near(bg, 255, 6) and near(bb, 255, 6)),
+         "the mark ships COLOUR, not a white tint mask like the control glyphs")
+    end
+
+    -- L1 rhombus: the solid run per row must peak at the centre and fall off
+    -- linearly toward both vertices. Three samples pin the slope; a square, a
+    -- circle and a rounded blob all fail at least one of them.
+    local function solidRun(y)
+      local n = 0
+      for x = 0, 63 do if select(4, px(x, y)) >= 250 then n = n + 1 end end
+      return n
+    end
+    local wMid, wUp, wDn = solidRun(32), solidRun(16), solidRun(48)
+    ok(wMid >= 54 and wMid <= 60,
+       ("the mark spans the field at its waist (got %d px)"):format(wMid))
+    ok(math.abs(wUp - (wMid - 32)) <= 3 and math.abs(wDn - (wMid - 32)) <= 3,
+       ("the silhouette tapers 1:1 like the suite diamond stencil (waist %d, +/-16 rows %d/%d)")
+         :format(wMid, wUp, wDn))
+    eq(solidRun(0), 0, "the top edge row is empty -- the vertex clears the field")
+    eq(solidRun(63), 0, "the bottom edge row is empty")
+  end
+
+  -- (e) reproducible ------------------------------------------------------------
+  ok(slurp(P("dev/gen-core-glyphs.lua"), "r") ~= nil,
+     "dev/gen-core-glyphs.lua is in the tree -- the mark can be regenerated")
 end
 
 ----------------------------------------------------------------------
