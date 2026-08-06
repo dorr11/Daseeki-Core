@@ -3,6 +3,8 @@
     /daseeki or /das  → open the combined options hub.
     /daseeki <id>     → open directly to a registered section (e.g. /daseeki bufftracker).
     /daseeki debug    → toggle the DaseekiUI layout debug overlay (block outlines).
+    /daseeki perf     → print the latest addon-performance snapshot (perf.lua).
+    /daseeki perf clear → empty the performance log.
     /daseekiui debug  → same overlay toggle (framework-scoped alias).
     /daseekiui debug material → cycle the Field Ledger material preset (subtle → standard
                         → strong) live so the owner can A/B the grain/vignette/keyline at
@@ -55,6 +57,14 @@ SlashCmdList["DASEEKISUITE"] = function(msg)
         cycleMaterial()
     elseif msg == "debug" then
         toggleDebug()
+    elseif msg == "perf" or msg:match("^perf%s") then
+        -- perf.lua owns its own printing. Guarded rather than assumed present, so a
+        -- partial install answers instead of erroring inside a slash handler.
+        if Core.Perf and Core.Perf.PrintReport then
+            Core.Perf.PrintReport(msg:match("^perf%s+(.*)$"))
+        else
+            print("|cff00ccff[Daseeki Suite]|r The performance log is unavailable in this build.")
+        end
     elseif msg ~= "" and Core.sections[msg] then
         Core:Open(msg)
     else

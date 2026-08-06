@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- Added: **a performance log for the suite.** Core now takes a quiet snapshot of the
+  game's own addon profiler a few minutes after you log in, every fifteen minutes after
+  that, and once more as you log out — recording how much CPU time each Daseeki addon is
+  actually using, alongside the ten heaviest addons you have running overall so there is
+  something to compare against. **`/daseeki perf`** prints the latest snapshot: every
+  Daseeki addon with its recent average, session average and peak in milliseconds, the
+  all-addons and game-itself totals for scale, and the top five overall.
+  **`/daseeki perf clear`** empties it.
+
+  The last 60 snapshots are kept in your saved variables — several days of play — so
+  "the interface felt heavy in Naxx last night" can be answered from the log the next
+  morning instead of guessed at. The sampler itself costs nothing between snapshots:
+  no per-frame work, no combat hooks, just a handful of readings on a timer. If your
+  client's addon profiler is switched off (or your client has none), the log records
+  one line saying exactly that and stops for the session rather than filling up with
+  blanks. Every snapshot is stamped with the Core version that took it, so a reading
+  from an older build is never mistaken for a current one.
+
+  Which addons get measured is decided by name at runtime, not from a list — a Daseeki
+  addon released next month is picked up the day you install it.
 - Fixed: **the minimap button finally wears the Daseeki mark.** It had been showing a
   generic Blizzard cog — the custom artwork was a `.jpg`, a format WoW cannot load, so
   the button silently fell back to a stock icon. The button now carries the suite maker's

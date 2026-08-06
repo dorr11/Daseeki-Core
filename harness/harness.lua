@@ -1035,6 +1035,724 @@ do
 end
 
 ----------------------------------------------------------------------
+-- 7) PERFORMANCE LOG (perf.lua): the suite's third telemetry ring
+--
+-- The ring is the suite's THIRD (Bags sortLog, Conduit attachTrace), so the gates
+-- it has to clear are the ones those two earned:
+--
+--   a) RING CAP enforced ON WRITE, and convergent when a cap is LOWERED between
+--      builds -- not one stale entry leaked per sample forever.
+--   b) ADDITIVE SV: a pre-existing DaseekiCoreDB gains exactly ONE new top-level
+--      key (`perfLog`) and every value already in it is left alone.
+--   c) ONE ENTRY PER SAMPLE KIND, driven through the real event + timer path:
+--      login (after the warm-up), interval (the ticker), logout (PLAYER_LOGOUT).
+--   d) PREFIX ENUMERATION from a FIXTURE addon list: every Daseeki-* addon that is
+--      loaded is sampled, nothing else is, and a future "Daseeki-NewThing" is picked
+--      up with no edit to perf.lua. This is the gate that would catch a hardcoded
+--      roster -- the suite grows, and the newest addon is the one worth measuring.
+--   e) PROFILER-ABSENT / SWITCHED-OFF: one honest entry, no Lua error, and NO ticker
+--      is ever created.
+--   f) TYPE-GUARDED READS: a profiler that returns strings, tables, nil, NaN or that
+--      RAISES is recorded as absent -- never as a value, never as an error.
+--   g) THE ENUM IS DISCOVERED, NOT NAMED. wow-api-catalog 1.15.9.68808 lists
+--      Enum.AddOnProfilerMetric (doc-tables.txt:206) without its members, so the
+--      sampler reads whatever the client has. Two fixtures with COMPLETELY different
+--      metric key names must both come through, or something is hardcoded.
+--   h) THE TOP-K SHAPE IS CAPTURED RAW (Conduit's GetSendMailItem trick), because
+--      AddOnProfilerResult (doc-tables.txt:11) is a name with no fields.
+--   i) BUILD STAMP on every entry -- a snapshot from stale code must be self-evident.
+----------------------------------------------------------------------
+print("\n== GATE 7: performance log ==")
+
+do
+  -- ---- the perf fixture environment ----------------------------------------
+  -- Built on the same buildEnv the other gates use, plus the profiler surface.
+  --
+  -- Metric names here are FIXTURES, not claims about the client: the point of two
+  -- differently-named sets is to prove perf.lua never asserts a name.
+  local METRICS_A = {   -- CamelCase, plausible-Blizzard shape
+    SessionAverageTime = 0, LastTime = 1, PeakTime = 2,
+    EncounterAverageTime = 3, RecentAverageTime = 4,
+    CountTimeOver1Ms = 5, CountTimeOver5Ms = 6,
+  }
+  local METRICS_B = {   -- a deliberately alien renumbered/renamed shape
+    ["session_avg_ms"] = 40, ["peak_ms"] = 41, ["recent_avg_ms"] = 42,
+  }
+
+  local FIXTURE_ADDONS = {
+    { name = "Blizzard_Something", loaded = true },
+    { name = "Daseeki-Core",       loaded = true },
+    { name = "SomeOtherAddon",     loaded = true },
+    { name = "Daseeki-Bags",       loaded = true },
+    { name = "NotDaseeki-Fork",    loaded = true },   -- contains, does not START with
+    { name = "Daseeki-Armory",     loaded = false },  -- installed but not loaded
+    { name = "Daseeki-NewThing",   loaded = true },   -- the FUTURE addon, adversarial
+  }
+
+  -- Deterministic fake readings so assertions can name exact numbers.
+  local function fakeValue(name, metric)
+    return ((#tostring(name) * 7 + metric * 3) % 97) / 100
+  end
+
+  -- opts:
+  --   absent    -> no C_AddOnProfiler namespace at all
+  --   off       -> IsEnabled() returns false
+  --   metrics   -> the Enum.AddOnProfilerMetric fixture (nil = no Enum at all)
+  --   addons    -> the addon list fixture
+  --   garbage   -> GetAddOnMetric hands back junk instead of numbers
+  --   raise     -> GetAddOnMetric raises
+  --   topk      -> "named" | "generic" | "strings" | "notatable" | "none"
+  local function buildPerfEnv(opts)
+    opts = opts or {}
+    local env = buildEnv(nil)
+
+    local list = opts.addons or FIXTURE_ADDONS
+    env.C_AddOns.GetNumAddOns  = function() return #list end
+    env.C_AddOns.GetAddOnName  = function(i) return list[i] and list[i].name or nil end
+    env.C_AddOns.IsAddOnLoaded = function(name)
+      for _, r in ipairs(list) do if r.name == name then return r.loaded end end
+      return false
+    end
+
+    env.Enum = opts.metrics and { AddOnProfilerMetric = opts.metrics } or nil
+
+    local junk = { "1.5", {}, nil, 0 / 0, math.huge }
+    local junkAt = 0
+    local function metricValue(name, metric)
+      if opts.raise then error("profiler exploded") end
+      if opts.garbage then
+        junkAt = (junkAt % #junk) + 1
+        return junk[junkAt]
+      end
+      return fakeValue(name, metric)
+    end
+
+    if not opts.absent then
+      local topkResults
+      if opts.topk == "generic" then
+        topkResults = { { name = "HeavyAddon", metric = 3.5 }, { name = "Daseeki-Bags", metric = 0.4 } }
+      elseif opts.topk == "strings" then
+        topkResults = { "HeavyAddon", "Daseeki-Bags" }
+      elseif opts.topk == "notatable" then
+        topkResults = "nope"
+      elseif opts.topk == "none" then
+        topkResults = nil
+      else
+        topkResults = {
+          { addOnName = "HeavyAddon",    value = 3.5 },
+          { addOnName = "AnotherAddon",  value = 1.25 },
+          { addOnName = "Daseeki-Bags",  value = 0.4 },
+          { addOnName = "Daseeki-Core",  value = 0.11 },
+          { addOnName = "SmallAddon",    value = 0.02 },
+          { addOnName = "TinyAddon",     value = 0.01 },
+        }
+      end
+      env.C_AddOnProfiler = {
+        IsEnabled                = function() return not opts.off end,
+        GetAddOnMetric           = metricValue,
+        GetOverallMetric         = function(m) return metricValue("__overall", m) end,
+        GetApplicationMetric     = function(m) return metricValue("__app", m) end,
+        GetTopKAddOnsForMetric   = function() return topkResults end,
+        GetTicksPerSecond        = function() return opts.tps == nil and 1000000 or opts.tps end,
+      }
+    end
+
+    local timers = { after = {}, tickers = {} }
+    env.__timers = timers
+    if not opts.noTimer then
+      env.C_Timer = {
+        After = function(sec, fn) timers.after[#timers.after + 1] = { sec = sec, fn = fn } end,
+        NewTicker = function(sec, fn)
+          local t = { sec = sec, fn = fn, cancelled = false }
+          function t:Cancel() self.cancelled = true end
+          timers.tickers[#timers.tickers + 1] = t
+          return t
+        end,
+      }
+    end
+
+    env.GetServerTime = function() return 1770000000 end
+    env.UnitName      = function() return "Daseeka", nil end
+    env.GetRealmName  = function() return "Whitemane" end
+    env.SlashCmdList  = {}
+    env.strtrim = function(s)
+      return (tostring(s or ""):gsub("^%s+", ""):gsub("%s+$", ""))
+    end
+    return env
+  end
+
+  -- Load core.lua + perf.lua + slash.lua into a perf env. Returns env, Core, leaked.
+  local PERF_FILES = { "core.lua", "perf.lua", "slash.lua" }
+  local function loadPerf(opts)
+    local env = buildPerfEnv(opts)
+    local before = {}
+    for k in pairs(env) do before[k] = true end
+    local Core = {}
+    for _, rel in ipairs(PERF_FILES) do
+      local chunk = assert(loadfile(P(rel)))
+      setfenv(chunk, env)
+      chunk(ADDON_NAME, Core)
+    end
+    local leaked = {}
+    for k in pairs(env) do if not before[k] then leaked[#leaked + 1] = k end end
+    table.sort(leaked)
+    return env, Core, leaked
+  end
+
+  -- Drive the real client sequence: ADDON_LOADED, PLAYER_LOGIN, then the warm-up
+  -- timer the login handler armed.
+  local function bootAndWarm(env)
+    env.__fire("ADDON_LOADED", ADDON_NAME)
+    env.__fire("PLAYER_LOGIN")
+    for _, t in ipairs(env.__timers.after) do t.fn() end
+  end
+  local function fireTickers(env, n)
+    for _ = 1, (n or 1) do
+      for _, t in ipairs(env.__timers.tickers) do
+        if not t.cancelled then t.fn() end
+      end
+    end
+  end
+  local function ringOf(env) return env.DaseekiCoreDB and env.DaseekiCoreDB.perfLog end
+  local function names(list)
+    local out = {}
+    for i = 1, #list do out[i] = list[i].name end
+    return table.concat(out, ",")
+  end
+  local function sortedKeys(t)
+    local out = {}
+    for k in pairs(t or {}) do out[#out + 1] = tostring(k) end
+    table.sort(out)
+    return out
+  end
+
+  ------------------------------------------------------------------
+  caseName = "perf: the toc actually loads it"
+  print("\n-- " .. caseName)
+  do
+    local sawPerf = false
+    for _, rel in ipairs(tocFiles) do if rel == "perf.lua" then sawPerf = true end end
+    ok(sawPerf, "perf.lua is listed in the .toc -- the sampler ships loaded")
+  end
+
+  ------------------------------------------------------------------
+  caseName = "perf: prefix enumeration, no hardcoded roster"
+  print("\n-- " .. caseName)
+  do
+    local env, Core = loadPerf()
+    local Perf = Core.Perf
+    ok(Perf ~= nil, "perf.lua publishes Core.Perf")
+
+    -- PURE, straight off the fixture list.
+    local picked = Perf.SuiteAddOns(FIXTURE_ADDONS)
+    eq(table.concat(picked, ","), "Daseeki-Core,Daseeki-Bags,Daseeki-NewThing",
+       "only LOADED Daseeki-* addons are sampled, in client order")
+    ok(Perf.IsSuiteName("Daseeki-NewThing"), "a future suite addon matches on the PREFIX")
+    eq(Perf.IsSuiteName("NotDaseeki-Fork"), false, "a name that merely CONTAINS the prefix does not match")
+    eq(Perf.IsSuiteName("SomeOtherAddon"), false, "an unrelated addon does not match")
+    eq(Perf.IsSuiteName(nil), false, "a nil name is not a match, and not an error")
+    eq(Perf.IsSuiteName(42), false, "a non-string name is not a match either")
+
+    -- ...and there is no roster ANYWHERE in the executable source. A list of addon
+    -- names in this file is precisely the regression the case exists to catch, so the
+    -- check runs against the CODE with comments stripped (the header prose names the
+    -- sibling addons the ring was modelled on, and should keep being allowed to).
+    local src = io.open(P("perf.lua"), "r"):read("*a")
+    local code = src:gsub("%-%-%[%[.-%]%]", ""):gsub("%-%-[^\n]*", "")
+    local hits = select(2, code:gsub("[Dd]aseeki%-%w", ""))
+    eq(hits, 0, "perf.lua's CODE names no individual suite addon (found " .. hits .. ")")
+    ok(code:find(Perf.PREFIX, 1, true) ~= nil,
+       "the only suite identity in the code is the PREFIX itself")
+
+    -- An entirely different suite roster works with no code change.
+    local FUTURE = {
+      { name = "Daseeki-Zephyr", loaded = true },
+      { name = "DaseekiCompact", loaded = true },   -- no hyphen at all
+      { name = "daseeki-lower",  loaded = true },   -- case-insensitive
+    }
+    eq(table.concat(Perf.SuiteAddOns(FUTURE), ","), "Daseeki-Zephyr,DaseekiCompact,daseeki-lower",
+       "an entirely unseen roster is picked up by prefix alone")
+    eq(#Perf.SuiteAddOns("not a table"), 0, "a junk addon list yields nothing, not an error")
+
+    -- The LIVE enumerator agrees with the pure one.
+    bootAndWarm(env)
+    local ring = ringOf(env)
+    ok(ring ~= nil and #ring == 1, "the live enumeration produced one entry")
+    eq(names(ring[1].addons), "Daseeki-Core,Daseeki-Bags,Daseeki-NewThing",
+       "...covering exactly the loaded suite addons the client reported")
+  end
+
+  ------------------------------------------------------------------
+  caseName = "perf: metrics are DISCOVERED from the client's own enum"
+  print("\n-- " .. caseName)
+  do
+    -- Shape A.
+    local env, Core = loadPerf({ metrics = METRICS_A })
+    local Perf = Core.Perf
+    bootAndWarm(env)
+    local e = ringOf(env)[1]
+    local m = e.addons[1].m
+    ok(m.SessionAverageTime ~= nil and m.PeakTime ~= nil and m.RecentAverageTime ~= nil,
+       "every metric the enum offered was read, under the enum's OWN key names")
+    ok(m.EncounterAverageTime ~= nil,
+       "encounter metrics ride along free when the enum has them (no combat machinery)")
+    eq(table.concat(e.metricKeys, ","),
+       "SessionAverageTime,LastTime,PeakTime,EncounterAverageTime,RecentAverageTime,CountTimeOver1Ms,CountTimeOver5Ms",
+       "the first sample records the enum legend, ordered by the enum's own values")
+    ok(e.overall ~= nil and e.app ~= nil, "the OVERALL and APPLICATION rollups are recorded too")
+    eq(e.tps, 1000000, "ticksPerSecond is recorded once per session")
+
+    -- Shape B: totally different names AND numbers. Anything hardcoded dies here.
+    local env2, Core2 = loadPerf({ metrics = METRICS_B })
+    bootAndWarm(env2)
+    local e2 = ringOf(env2)[1]
+    local m2 = e2.addons[1].m
+    ok(m2["session_avg_ms"] ~= nil and m2["peak_ms"] ~= nil and m2["recent_avg_ms"] ~= nil,
+       "an alien metric naming/numbering comes through unchanged")
+    eq(m2.SessionAverageTime, nil, "...and no shape-A name was invented for it")
+    eq(e2.topKMetric, "session_avg_ms", "the top-K ranks by the alien session-average key")
+
+    -- No Enum at all: honest emptiness, no error.
+    local env3, Core3 = loadPerf({ metrics = nil })
+    bootAndWarm(env3)
+    local e3 = ringOf(env3)[1]
+    eq(#Core3.Perf.MetricList(nil), 0, "a missing enum yields no metrics")
+    eq(e3.addons[1].m, nil, "...so the addon row carries no metric map")
+    ok(e3.build ~= nil, "...but the entry is still written, stamped and readable")
+
+    -- The metric list is capped and stably ordered.
+    local big = {}
+    for i = 1, 40 do big["M" .. i] = i end
+    eq(#Perf.MetricList(big), Perf.MAX_METRICS, "the metric list is capped on read")
+    eq(Perf.MetricList(big)[1].key, "M1", "...keeping the LOWEST enum values, deterministically")
+  end
+
+  ------------------------------------------------------------------
+  caseName = "perf: top-K shape is normalised AND captured raw"
+  print("\n-- " .. caseName)
+  do
+    for _, shape in ipairs({ "named", "generic", "strings" }) do
+      local env, Core = loadPerf({ metrics = METRICS_A, topk = shape })
+      bootAndWarm(env)
+      local e = ringOf(env)[1]
+      ok(e.topK ~= nil and #e.topK >= 2, ("(%s) the top-K rows came through"):format(shape))
+      eq(e.topK[1].name, "HeavyAddon", ("(%s) ...with the addon NAME resolved by type"):format(shape))
+      if shape ~= "strings" then
+        eq(e.topK[1].value, 3.5, ("(%s) ...and its value"):format(shape))
+      end
+      ok(e.topKRaw ~= nil and #e.topKRaw >= 1,
+         ("(%s) the RAW row shape is captured on the first sample"):format(shape))
+    end
+
+    -- The raw capture is what pins the undocumented shape: it must name the fields.
+    local env, Core = loadPerf({ metrics = METRICS_A, topk = "named" })
+    bootAndWarm(env)
+    local e = ringOf(env)[1]
+    ok(e.topKRaw[1]:find("addOnName=HeavyAddon", 1, true) ~= nil,
+       "the raw capture records the client's REAL field names and values")
+    ok(#e.topKRaw <= Core.Perf.MAX_RAW, "the raw capture is capped")
+
+    -- The top-K includes NON-Daseeki addons on purpose: that is the context.
+    local sawForeign = false
+    for _, r in ipairs(e.topK) do if not Core.Perf.IsSuiteName(r.name) then sawForeign = true end end
+    ok(sawForeign, "the top-K carries addons that are NOT ours -- the suite in context")
+
+    -- Raw capture happens ONCE per session, not on every sample forever.
+    fireTickers(env, 1)
+    local ring = ringOf(env)
+    eq(ring[2].topKRaw, nil, "later samples do not re-capture the raw shape")
+    eq(ring[2].tps, nil, "...nor re-record ticksPerSecond")
+    ok(ring[2].topK ~= nil and #ring[2].topK > 0, "...but they still carry the normalised top-K")
+
+    -- A client that hands back something that is not a table at all.
+    local envN, CoreN = loadPerf({ metrics = METRICS_A, topk = "notatable" })
+    bootAndWarm(envN)
+    local eN = ringOf(envN)[1]
+    eq(eN.topK, nil, "a non-table top-K result yields no rows")
+    ok(eN.topKRaw ~= nil and eN.topKRaw[1] == "nope",
+       "...but WHAT it returned is captured, so the next build knows")
+  end
+
+  ------------------------------------------------------------------
+  caseName = "perf: one entry per sample kind, on the real event path"
+  print("\n-- " .. caseName)
+  do
+    local env, Core = loadPerf({ metrics = METRICS_A })
+    local Perf = Core.Perf
+
+    env.__fire("ADDON_LOADED", ADDON_NAME)
+    env.__fire("PLAYER_LOGIN")
+    eq(ringOf(env), nil, "nothing is sampled at login -- the warm-up has not elapsed")
+    eq(#env.__timers.after, 1, "one warm-up timer was armed")
+    eq(env.__timers.after[1].sec, Perf.WARMUP, "...for the warm-up delay, not immediately")
+
+    env.__timers.after[1].fn()
+    local ring = ringOf(env)
+    ok(ring ~= nil and #ring == 1, "the warm-up sample landed")
+    eq(ring[1].kind, "login", "...recorded as the login sample")
+    eq(#env.__timers.tickers, 1, "and the interval ticker was started")
+    eq(env.__timers.tickers[1].sec, Perf.INTERVAL, "...at the interval cadence")
+
+    fireTickers(env, 2)
+    eq(#ring, 3, "each ticker fire appends exactly one entry")
+    eq(ring[2].kind, "interval", "...recorded as interval samples")
+    eq(ring[3].kind, "interval", "...both of them")
+
+    env.__fire("PLAYER_LOGOUT")
+    eq(#ring, 4, "PLAYER_LOGOUT appends the closing sample")
+    eq(ring[4].kind, "logout", "...recorded as the logout sample")
+
+    -- Session identity + sequence, so a WTF read can tell sessions apart.
+    eq(ring[1].session, ring[4].session, "every sample in a session shares one session id")
+    eq(ring[1].seq, 1, "sequence numbers start at 1")
+    eq(ring[4].seq, 4, "...and count the session's samples")
+    eq(ring[1].char, "Daseeka-Whitemane", "the character is stamped on the entry")
+
+    -- ZERO per-frame work: perf.lua must never hang a script on OnUpdate. Checked
+    -- against the CODE, not the prose (the header explains the rule in words).
+    local src = io.open(P("perf.lua"), "r"):read("*a")
+    local code = src:gsub("%-%-%[%[.-%]%]", ""):gsub("%-%-[^\n]*", "")
+    eq(code:find("OnUpdate", 1, true), nil,
+       "perf.lua registers no OnUpdate -- the sampler is near-free between samples")
+    local scripts = select(2, code:gsub("SetScript%(", ""))
+    eq(scripts, 1, "exactly ONE script is set: the event handler")
+  end
+
+  ------------------------------------------------------------------
+  caseName = "perf: build stamp on every entry"
+  print("\n-- " .. caseName)
+  do
+    local env, Core = loadPerf({ metrics = METRICS_A })
+    bootAndWarm(env)
+    fireTickers(env, 1)
+    env.__fire("PLAYER_LOGOUT")
+    local ring = ringOf(env)
+    for i = 1, #ring do
+      ok(type(ring[i].build) == "string" and ring[i].build ~= "",
+         ("entry %d carries a build stamp"):format(i))
+    end
+    ok(ring[1].build:find(TOC_VERSION, 1, true) ~= nil,
+       "the stamp carries Core's ## Version (" .. tostring(TOC_VERSION) .. ")")
+    ok(ring[1].build:find(Core.Perf.BUILD_TOKEN, 1, true) ~= nil,
+       "...and the sampler's own build token (" .. tostring(Core.Perf.BUILD_TOKEN) .. ")")
+
+    -- Unreadable version metadata must not cost us the stamp entirely.
+    local envNV, CoreNV = loadPerf({ metrics = METRICS_A })
+    envNV.C_AddOns.GetAddOnMetadata = false
+    envNV.GetAddOnMetadata = false
+    -- reload core+perf under the stripped metadata surface
+    local Core2 = {}
+    for _, rel in ipairs(PERF_FILES) do
+      local chunk = assert(loadfile(P(rel))); setfenv(chunk, envNV); chunk(ADDON_NAME, Core2)
+    end
+    eq(Core2.Perf.Build(), "?+" .. Core2.Perf.BUILD_TOKEN,
+       "an unreadable Core version still yields a stamped, honest build string")
+  end
+
+  ------------------------------------------------------------------
+  caseName = "perf: ring cap enforced on write"
+  print("\n-- " .. caseName)
+  do
+    local env, Core = loadPerf({ metrics = METRICS_A })
+    local Perf = Core.Perf
+    bootAndWarm(env)
+    fireTickers(env, Perf.CAP + 10)
+    local ring = ringOf(env)
+    eq(#ring, Perf.CAP, "the ring never exceeds its cap, however long the session runs")
+    eq(ring[#ring].seq, Perf.CAP + 11, "the NEWEST sample is at the end")
+    ok(ring[1].seq > 1, "...and the oldest samples were dropped from the front")
+
+    -- The cap is honoured on the pure Append too, and a LOWERED cap converges on
+    -- the first write rather than leaking one stale entry per sample forever.
+    local r = {}
+    for i = 1, 12 do Perf.Append(r, { ts = i, kind = "interval" }, 5) end
+    eq(#r, 5, "a bare ring respects the cap handed to Append")
+    eq(r[1].ts, 8, "...dropping from the front")
+    Perf.Append(r, { ts = 99, kind = "interval" }, 2)
+    eq(#r, 2, "a cap LOWERED between builds converges on the very first append")
+    eq(r[2].ts, 99, "...keeping the newest")
+    Perf.Append(r, { ts = 100 }, 0)
+    eq(#r, 1, "a nonsense cap of 0 is floored at 1 rather than emptying the ring")
+    eq(Perf.Append("not a ring", {}), nil, "appending to a non-table is nil, not an error")
+
+    -- Per-entry caps, all enforced on write.
+    local many, tk = {}, {}
+    for i = 1, 60 do many[i] = { name = "Daseeki-A" .. i, m = { X = i } } end
+    for i = 1, 60 do tk[i] = { name = "N" .. i, value = i } end
+    local e = Perf.NewEntry({ addons = many, topK = tk, topKRaw = many,
+                              metricKeys = many, note = string.rep("x", 500),
+                              char = string.rep("c", 500) })
+    eq(#e.addons, Perf.MAX_ADDONS, "the addon list is capped on write")
+    eq(#e.topK, Perf.MAX_TOPK, "the top-K list is capped on write")
+    eq(#e.topKRaw, Perf.MAX_RAW, "the raw capture is capped on write")
+    eq(#e.note, Perf.MAX_NOTE, "the note is truncated on write")
+    eq(#e.char, Perf.MAX_NAME, "the character string is truncated on write")
+    eq(Perf.NewEntry({ kind = "wat" }).kind, "interval", "an unknown sample kind is normalised")
+    eq(Perf.NewEntry(nil).ts, 0, "a nil entry normalises rather than raising")
+  end
+
+  ------------------------------------------------------------------
+  caseName = "perf: additive SavedVariables"
+  print("\n-- " .. caseName)
+  do
+    -- A save from the shipped build, with the owner's own choices in it.
+    local seedEnv = loadPerf({ metrics = METRICS_A })
+    seedEnv.__fire("ADDON_LOADED", ADDON_NAME)
+    local existing = {}
+    for k, v in pairs(seedEnv.DaseekiCoreDB) do existing[k] = v end
+    existing.theme          = "Winterspring Frost"
+    existing.fontChoice     = "2002"
+    existing.fontScale      = 1.15
+    existing.minimapAngle   = 42
+    existing.lastAddon      = "armory"
+    local beforeKeys = table.concat(sortedKeys(existing), ",")
+    local beforeVals = {}
+    for k, v in pairs(existing) do beforeVals[k] = v end
+
+    local env, Core = loadPerf({ metrics = METRICS_A })
+    env.DaseekiCoreDB = existing
+    bootAndWarm(env)
+    fireTickers(env, 1)
+
+    local afterKeys = sortedKeys(env.DaseekiCoreDB)
+    local added = {}
+    for _, k in ipairs(afterKeys) do
+      if beforeKeys:find(k, 1, true) == nil then added[#added + 1] = k end
+    end
+    eq(table.concat(added, ","), "perfLog",
+       "the log writes exactly ONE new SavedVariables key, `perfLog`")
+    local changed = {}
+    for k, v in pairs(beforeVals) do
+      if env.DaseekiCoreDB[k] ~= v then changed[#changed + 1] = k end
+    end
+    eq(table.concat(changed, ","), "", "every pre-existing setting is left exactly as it was")
+    ok(env.DaseekiCoreDB == existing, "...and it is the SAME table -- the save was not replaced")
+    eq(type(env.DaseekiCoreDB.perfLog), "table", "the ring is a plain array on the settings DB")
+
+    -- Clearing empties IN PLACE, so nothing holding a reference is left dangling.
+    local live = env.DaseekiCoreDB.perfLog
+    local n = Core.Perf.Count()
+    ok(n >= 2, "there are samples to clear (" .. n .. ")")
+    eq(Core.Perf.Clear(), n, "Clear reports how many it dropped")
+    eq(#live, 0, "...the buffer is empty")
+    ok(env.DaseekiCoreDB.perfLog == live, "...IN PLACE: the SV table identity survives a clear")
+    eq(Core.Perf.Count(), 0, "...and the count agrees")
+
+    -- Reading a ring that was never created is an empty list, not nil and not an error.
+    eq(#Core.Perf.Records(nil), 0, "reading a missing ring yields an empty list")
+    ok(Core.Perf.Records(live) ~= live, "Records hands back a COPY; the live SV table is never handed out")
+  end
+
+  ------------------------------------------------------------------
+  caseName = "perf: profiler switched off / absent"
+  print("\n-- " .. caseName)
+  do
+    -- (a) the player switched it off.
+    local env, Core = loadPerf({ metrics = METRICS_A, off = true })
+    bootAndWarm(env)
+    local ring = ringOf(env)
+    ok(ring ~= nil and #ring == 1, "exactly ONE entry is written when the profiler is off")
+    eq(ring[1].kind, "off", "...marked as such")
+    eq(ring[1].profiler, false, "...recording that the profiler said no")
+    ok(type(ring[1].note) == "string" and ring[1].note:find("switched off", 1, true) ~= nil,
+       "...with a note a human can act on")
+    eq(ring[1].addons, nil, "...and nothing was sampled")
+    eq(#env.__timers.tickers, 0, "NO ticker is created -- the sampler stops for the session")
+
+    env.__fire("PLAYER_LOGOUT")
+    eq(#ring, 1, "...and PLAYER_LOGOUT does not append a second one either")
+
+    -- (b) the client has no profiler at all.
+    local env2, Core2 = loadPerf({ metrics = METRICS_A, absent = true })
+    bootAndWarm(env2)
+    local ring2 = ringOf(env2)
+    ok(ring2 ~= nil and #ring2 == 1, "an absent profiler also writes exactly one honest entry")
+    eq(ring2[1].kind, "off", "...marked as an off sample")
+    eq(ring2[1].profiler, nil,
+       "...with the profiler state left NIL: 'we could not ask' is not 'it said no'")
+    ok(ring2[1].note:find("no addon profiler", 1, true) ~= nil, "...and the note says why")
+    eq(#env2.__timers.tickers, 0, "no ticker on a client with no profiler")
+
+    -- (c) no timer service at all: still one sample, still no error.
+    local env3, Core3 = loadPerf({ metrics = METRICS_A, noTimer = true })
+    env3.__fire("ADDON_LOADED", ADDON_NAME)
+    local okBoot = pcall(env3.__fire, "PLAYER_LOGIN")
+    ok(okBoot, "a client with no C_Timer boots without raising")
+    local r3 = ringOf(env3)
+    ok(r3 ~= nil and #r3 == 1, "...and still takes one sample immediately (got "
+       .. tostring(r3 and #r3) .. ")")
+    eq(r3 and r3[1].kind, "login", "...recorded as the login sample")
+  end
+
+  ------------------------------------------------------------------
+  caseName = "perf: type-guarded reads"
+  print("\n-- " .. caseName)
+  do
+    -- (a) the profiler hands back strings, tables, nil, NaN and infinity.
+    local env, Core = loadPerf({ metrics = METRICS_A, garbage = true })
+    local okRun = pcall(bootAndWarm, env)
+    ok(okRun, "a profiler returning junk does not raise")
+    local e = ringOf(env)[1]
+    ok(e ~= nil, "...an entry is still written")
+    for i = 1, #(e.addons or {}) do
+      eq(e.addons[i].m, nil, ("addon %d records the junk readings as ABSENT, not as values"):format(i))
+    end
+
+    -- (b) the profiler RAISES.
+    local env2, Core2 = loadPerf({ metrics = METRICS_A, raise = true })
+    local okRun2 = pcall(bootAndWarm, env2)
+    ok(okRun2, "a profiler that RAISES does not take the login with it")
+    local e2 = ringOf(env2)[1]
+    ok(e2 ~= nil and e2.build ~= nil, "...and a stamped entry is still written")
+    eq(e2.addons[1].m, nil, "...with the unreadable metrics recorded as absent")
+
+    -- (c) the primitives, directly.
+    local Perf = Core.Perf
+    eq(Perf.Num("1.5"), nil, "a numeric STRING is not accepted as a metric")
+    eq(Perf.Num(0 / 0), nil, "NaN is rejected -- it would poison the saved file")
+    eq(Perf.Num(math.huge), nil, "infinity is rejected")
+    eq(Perf.Num(-math.huge), nil, "negative infinity is rejected")
+    eq(Perf.Num({}), nil, "a table is not a metric")
+    eq(Perf.Num(nil), nil, "nil is not a metric")
+    eq(Perf.Num(1.23456789), 1.2346, "real readings are kept to four decimals")
+    eq(Perf.Num(0), 0, "a genuine zero survives (it is a reading, not an absence)")
+    eq(Perf.Str({}), "<table>", "a table stringifies to its TYPE, never its address")
+    eq(#Perf.Str(string.rep("x", 500)), Perf.MAX_STR, "long strings are truncated")
+    eq(Perf.NormMetrics({ good = 1.5, bad = "x", worse = {} }).good, 1.5,
+       "a metric map keeps the readable entries...")
+    eq(Perf.NormMetrics({ good = 1.5, bad = "x" }).bad, nil, "...and drops the unreadable ones")
+    eq(Perf.NormMetrics({ bad = "x" }), nil, "an all-unreadable map is nil rather than an empty husk")
+    eq(Perf.NormMetrics("junk"), nil, "a non-table metric map is nil, not an error")
+    eq(Perf.TopKRow(42), nil, "a nonsense top-K row is dropped")
+    eq(Perf.TopKRow({}), nil, "an empty top-K row is dropped")
+    eq(Perf.TopKRow({ junk = {} }), nil, "a row with no readable field is dropped")
+    eq(Perf.TopKRow("Named").name, "Named", "a bare string row is accepted as a name")
+    eq(Perf.TopKRow({ addOnName = "X", value = 2 }).value, 2, "a named row keeps its value")
+    eq(Perf.TopKRow({ zzz = "X", aaa = 9 }).name, "X",
+       "an unrecognised row falls back to the first string field, deterministically")
+    eq(Perf.TopKRaw({ b = 2, a = "x" }), "a=x|b=2", "the raw capture is sorted and stable")
+    eq(Perf.TopKRaw({}), "<empty table>", "an empty raw row says so rather than vanishing")
+  end
+
+  ------------------------------------------------------------------
+  caseName = "perf: /daseeki perf reads it back"
+  print("\n-- " .. caseName)
+  do
+    local env, Core = loadPerf({ metrics = METRICS_A })
+    local Perf = Core.Perf
+    local run = env.SlashCmdList["DASEEKISUITE"]
+    ok(type(run) == "function", "the suite slash handler exists")
+
+    -- Empty log: the command still ANSWERS, and says what to expect.
+    local before = #env.__notices
+    run("perf")
+    ok(#env.__notices > before, "/daseeki perf answers on an empty log")
+    ok(env.__notices[#env.__notices]:find("No performance samples yet", 1, true) ~= nil,
+       "...explaining that the first sample lands after login")
+
+    bootAndWarm(env)
+    fireTickers(env, 1)
+    before = #env.__notices
+    run("perf")
+    local printed = {}
+    for i = before + 1, #env.__notices do printed[#printed + 1] = env.__notices[i] end
+    local blob = table.concat(printed, "\n")
+    ok(#printed >= 5, "/daseeki perf prints a multi-line report (" .. #printed .. " lines)")
+    ok(blob:find("Addon performance", 1, true) ~= nil, "...headed as the performance report")
+    ok(blob:find("2 of " .. Perf.CAP .. " samples kept", 1, true) ~= nil,
+       "...stating ring occupancy against the cap")
+    ok(blob:find("Daseeki%-Core") ~= nil, "...listing each sampled suite addon")
+    ok(blob:find("Daseeki%-NewThing") ~= nil, "...including the future one")
+    ok(blob:find("recent", 1, true) and blob:find("session", 1, true) and blob:find("peak", 1, true),
+       "...under recent / session / peak columns")
+    ok(blob:find("ms", 1, true) ~= nil, "...with millisecond-formatted timings")
+    ok(blob:find("HeavyAddon", 1, true) ~= nil, "...and the top-5 overall for context")
+    ok(blob:find("ALL ADDONS", 1, true) ~= nil, "...with the all-addons rollup to give it scale")
+
+    -- clear
+    before = #env.__notices
+    run("perf clear")
+    eq(Perf.Count(), 0, "/daseeki perf clear empties the ring")
+    ok(env.__notices[#env.__notices]:find("cleared", 1, true) ~= nil, "...and says so")
+    run("perf")
+    ok(env.__notices[#env.__notices]:find("No performance samples yet", 1, true) ~= nil,
+       "...leaving the log genuinely empty")
+
+    -- The report is PURE, so its shape is pinnable without a chat frame.
+    local lines = Perf.FormatEntry(nil, 0, Perf.CAP)
+    ok(#lines == 1 and lines[1]:find("No performance samples", 1, true) ~= nil,
+       "formatting a nil entry degrades to one honest line")
+    local offLines = Perf.FormatEntry({ kind = "off", note = "profiler is off", ts = 0 }, 1, 60)
+    ok(table.concat(offLines, "\n"):find("profiler is off", 1, true) ~= nil,
+       "an off entry prints its note instead of empty columns")
+
+    -- Columns resolve from whatever the client named its metrics -- both shapes.
+    local colsA = Perf.Columns({ "SessionAverageTime", "PeakTime", "RecentAverageTime" })
+    eq(colsA.session, "SessionAverageTime", "column resolution finds session average (shape A)")
+    eq(colsA.recent, "RecentAverageTime", "...and recent average")
+    eq(colsA.peak, "PeakTime", "...and peak")
+    local colsB = Perf.Columns({ "session_avg_ms", "peak_ms", "recent_avg_ms" })
+    eq(colsB.session, "session_avg_ms", "column resolution finds them under alien names too")
+    eq(colsB.peak, "peak_ms", "...peak as well")
+    eq(Perf.Columns({}).session, nil, "no metrics means no column, not a crash")
+    eq(Perf.FormatValue("PeakTime", nil), "—", "a missing reading prints as a dash")
+    eq(Perf.FormatValue("CountTimeOver1Ms", 12.4), "12", "counters print as integers")
+    eq(Perf.FormatValue("PeakTime", 1.5), "1.50ms", "timings print in milliseconds")
+    -- "EncounterAverageTime" CONTAINS the substring "count" (en-COUNT-eraverage). A
+    -- loose match printed a 0.12ms encounter average as a flat "0".
+    eq(Perf.FormatValue("EncounterAverageTime", 0.12), "0.12ms",
+       "an encounter average is a DURATION, not a counter, despite spelling 'count'")
+    eq(Perf.FormatValue("timeOver10Ms", 7), "7", "a threshold counter still reads as a count")
+
+    -- ...and the same trap, end to end through the report, on a client whose enum
+    -- HAS encounter metrics (METRICS_A does).
+    local encEnv, encCore = loadPerf({ metrics = METRICS_A })
+    bootAndWarm(encEnv)
+    local encLine
+    for _, l in ipairs(encCore.Perf.FormatEntry(encCore.Perf.Records(ringOf(encEnv))[1], 1, 60)) do
+      if l:find("encounter avg", 1, true) then encLine = l end
+    end
+    ok(encLine ~= nil, "the report carries an encounter line when the enum offers one")
+    ok(encLine and encLine:find("ms", 1, true) ~= nil,
+       "...with millisecond timings, not flattened integers")
+
+    -- A client with NO encounter metric simply has no such line -- and no combat
+    -- machinery was built to invent one.
+    local noEncEnv, noEncCore = loadPerf({ metrics = METRICS_B })
+    bootAndWarm(noEncEnv)
+    local sawEnc = false
+    for _, l in ipairs(noEncCore.Perf.FormatEntry(noEncCore.Perf.Records(ringOf(noEncEnv))[1], 1, 60)) do
+      if l:find("encounter", 1, true) then sawEnc = true end
+    end
+    eq(sawEnc, false, "a client without encounter metrics gets no encounter line")
+  end
+
+  ------------------------------------------------------------------
+  caseName = "perf: global firewall"
+  print("\n-- " .. caseName)
+  do
+    local ALLOWED = {
+      DaseekiSuite = true, DaseekiCoreDB = true, DaseekiCoreCharDB = true,
+      -- slash.lua's registrations, which the client requires to be globals
+      SLASH_DASEEKISUITE1 = true, SLASH_DASEEKISUITE2 = true, SLASH_DASEEKIUI1 = true,
+    }
+    local env, Core, leaked = loadPerf({ metrics = METRICS_A })
+    bootAndWarm(env)
+    local bad = {}
+    for k in pairs(env) do
+      if type(k) == "string" and not ALLOWED[k] and not k:match("^__")
+         and (k:match("^Daseeki") or k:match("^Perf") or k:match("^SLASH")) then
+        bad[#bad + 1] = k
+      end
+    end
+    table.sort(bad)
+    eq(#bad, 0, "perf.lua leaks no globals of its own (" .. table.concat(bad, ", ") .. ")")
+    ok(Core.Perf ~= nil, "the sampler lives on the addon namespace, not in _G")
+    eq(env.Perf, nil, "...and `Perf` is not a global")
+  end
+end
+
+----------------------------------------------------------------------
 print("\n=====================================================")
 if #failures == 0 then
   print(("OVERALL: ALL PASS  (%d checks)"):format(checks))

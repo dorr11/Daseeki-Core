@@ -17,4 +17,5 @@ ledgerkit.lua
 dialogs.lua
 hub.lua
 minimap.lua
+perf.lua
 slash.lua
