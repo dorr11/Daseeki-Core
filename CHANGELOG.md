@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.3.0 — 2026-08-05
 
 - Added: **a performance log for the suite.** Core now takes a quiet snapshot of the
   game's own addon profiler a few minutes after you log in, every fifteen minutes after

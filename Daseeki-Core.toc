@@ -7,7 +7,7 @@
 ## X-Bundled-Fonts: Fira Sans Condensed Medium — SIL Open Font License 1.1 (see fonts/OFL.txt)
 ## SavedVariables: DaseekiCoreDB
 ## SavedVariablesPerCharacter: DaseekiCoreCharDB
-## Version: 2.2.0
+## Version: 2.3.0
 
 core.lua
 theme.lua
