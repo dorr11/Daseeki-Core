@@ -8,6 +8,9 @@ Daseeki Core is not a standalone addon — it provides:
 - A shared widget toolkit (`widgets.lua`) and dialog system (`dialogs.lua`) used across the suite.
 - A minimap button (`minimap.lua`) and `/daseeki` slash command (`slash.lua`) for opening the hub.
 - Skinning helpers (`skin.lua`) so all Daseeki addons share a consistent look.
+- A persisted addon-performance log (`perf.lua`, `DaseekiCoreDB.perfLog`) built on the
+  client's `C_AddOnProfiler`: a bounded ring of CPU snapshots covering every loaded
+  Daseeki addon plus the heaviest addons overall, read back with `/daseeki perf`.
 
 ## Requires
 
